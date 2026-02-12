@@ -1,0 +1,164 @@
+// 抽卡系统 Protobuf 定义
+syntax = "proto3";
+
+package gacha;
+
+option java_package = "com.gacha.proto";
+option java_outer_classname = "GachaProto";
+
+// ============ 基础数据结构 ============
+
+// 卡牌信息
+message Card {
+    string card_id = 1;        // 卡牌ID
+    string name = 2;           // 卡牌名称
+    string rarity = 3;         // 品阶: SSR/SR/R
+    string pool_id = 4;        // 所属卡池ID
+    bool is_featured = 5;      // 是否为UP卡
+    string image_url = 6;      // 图片URL
+}
+
+// 卡池信息
+message Pool {
+    string pool_id = 1;            // 卡池ID
+    string name = 2;               // 卡池名称
+    string pool_type = 3;          // 类型: permanent/event/limited
+    string description = 4;        // 描述
+    repeated Card cards = 5;       // 卡池中的卡牌
+    repeated string featured_ssr = 6;  // UP的SSR卡牌ID
+    string library_id = 7;         // 卡库ID
+}
+
+// 抽卡统计信息
+message GachaStats {
+    int32 total_pulls = 1;         // 总抽卡次数
+    int32 ssr_count = 2;           // SSR数量
+    int32 sr_count = 3;            // SR数量
+    int32 r_count = 4;             // R数量
+    int32 pity_counter = 5;        // 保底计数
+    map<string, int32> featured_ssr_counts = 6;  // 特定SSR获取数量
+}
+
+// 抽卡历史记录
+message PullRecord {
+    int32 pull_number = 1;     // 抽卡序号
+    Card card = 2;             // 获得的卡牌
+    int64 timestamp = 3;       // 时间戳
+}
+
+// ============ 请求消息 ============
+
+// 获取卡池列表请求
+message GetPoolsRequest {
+    // 空请求
+}
+
+// 设置当前卡池请求
+message SetPoolRequest {
+    string pool_id = 1;        // 目标卡池ID
+}
+
+// 单抽请求
+message PullSingleRequest {
+    string pool_id = 1;        // 卡池ID (可选，不填使用当前卡池)
+}
+
+// 多连抽请求
+message PullMultiRequest {
+    string pool_id = 1;        // 卡池ID (可选)
+    int32 count = 2;           // 抽卡次数
+}
+
+// 获取统计信息请求
+message GetStatsRequest {
+    // 空请求
+}
+
+// 获取历史记录请求
+message GetHistoryRequest {
+    int32 limit = 1;           // 限制返回数量 (0表示全部)
+}
+
+// 重置数据请求
+message ResetRequest {
+    bool reset_stats = 1;      // 是否重置统计
+    bool reset_pity = 2;       // 是否重置保底
+}
+
+// ============ 响应消息 ============
+
+// 通用响应头
+message ResponseHeader {
+    bool success = 1;          // 是否成功
+    int32 error_code = 2;      // 错误码 (0=成功)
+    string error_msg = 3;      // 错误信息
+}
+
+// 获取卡池列表响应
+message GetPoolsResponse {
+    ResponseHeader header = 1;
+    repeated Pool pools = 2;       // 卡池列表
+    string current_pool_id = 3;    // 当前选中的卡池ID
+}
+
+// 设置卡池响应
+message SetPoolResponse {
+    ResponseHeader header = 1;
+    Pool pool = 2;             // 设置后的当前卡池
+}
+
+// 单抽响应
+message PullSingleResponse {
+    ResponseHeader header = 1;
+    Card card = 2;             // 获得的卡牌
+    GachaStats stats = 3;      // 更新后的统计信息
+}
+
+// 多连抽响应
+message PullMultiResponse {
+    ResponseHeader header = 1;
+    repeated Card cards = 2;   // 获得的卡牌列表
+    GachaStats stats = 3;      // 更新后的统计信息
+}
+
+// 获取统计响应
+message GetStatsResponse {
+    ResponseHeader header = 1;
+    GachaStats stats = 2;
+}
+
+// 获取历史响应
+message GetHistoryResponse {
+    ResponseHeader header = 1;
+    repeated PullRecord records = 2;
+}
+
+// 重置响应
+message ResetResponse {
+    ResponseHeader header = 1;
+}
+
+// ============ 服务定义 (用于 gRPC) ============
+
+service GachaService {
+    // 获取所有卡池
+    rpc GetPools(GetPoolsRequest) returns (GetPoolsResponse);
+    
+    // 设置当前卡池
+    rpc SetPool(SetPoolRequest) returns (SetPoolResponse);
+    
+    // 单抽
+    rpc PullSingle(PullSingleRequest) returns (PullSingleResponse);
+    
+    // 多连抽
+    rpc PullMulti(PullMultiRequest) returns (PullMultiResponse);
+    
+    // 获取统计信息
+    rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+    
+    // 获取历史记录
+    rpc GetHistory(GetHistoryRequest) returns (GetHistoryResponse);
+    
+    // 重置数据
+    rpc Reset(ResetRequest) returns (ResetResponse);
+}

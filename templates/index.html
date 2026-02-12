@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="main-layout">
+    <!-- 左侧菜单栏 -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h2>工具菜单</h2>
+        </div>
+        
+        <nav class="sidebar-nav">
+            <ul class="menu-list">
+                <li class="menu-item active" data-menu="gacha">
+                    <span class="menu-icon">🎴</span>
+                    <span class="menu-text">抽卡概率工具</span>
+                </li>
+                <li class="menu-item disabled" data-menu="compare">
+                    <span class="menu-icon">📊</span>
+                    <span class="menu-text">数值比拼</span>
+                    <span class="coming-soon">待开发...</span>
+                </li>
+            </ul>
+        </nav>
+        
+        <div class="sidebar-footer">
+            <!-- 抽卡数据按钮已移至右上角 -->
+        </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        <!-- 右上角抽卡数据按钮 -->
+        <div class="top-actions">
+            <button id="exportDataBtn" class="btn btn-export">
+                📋 抽卡数据
+            </button>
+        </div>
+
+        <!-- 顶部卡池选择 -->
+        <section class="pool-section">
+            <h3>卡池选择</h3>
+            <div class="pool-tabs" id="poolTabs">
+                {% for pool in pools %}
+                <button class="pool-tab {% if current_pool and pool.pool_id == current_pool.pool_id %}active{% endif %}" 
+                        data-pool-id="{{ pool.pool_id }}">
+                    {{ pool.name }}
+                </button>
+                {% endfor %}
+            </div>
+            <p class="pool-desc" id="poolDesc">
+                {{ current_pool.description if current_pool else '请选择卡池' }}
+            </p>
+        </section>
+
+        <!-- 抽卡操作区 -->
+        <section class="pull-section">
+            <div class="pull-buttons">
+                <button id="pullSingle" class="btn btn-pull">抽卡 1 次</button>
+                <button id="pullTen" class="btn btn-pull btn-primary">抽卡 10 次</button>
+                <div class="custom-pull">
+                    <input type="number" id="customCount" min="1" max="100000" value="100" placeholder="次数">
+                    <button id="pullCustom" class="btn btn-pull">抽卡</button>
+                </div>
+            </div>
+            <button id="resetBtn" class="btn btn-reset">重置</button>
+        </section>
+
+        <!-- 结果展示区 -->
+        <section class="result-section">
+            <div class="result-container">
+                <!-- 左侧：卡牌展示 -->
+                <div class="card-display">
+                    <h4>抽卡结果</h4>
+                    <div class="cards-grid" id="cardsGrid">
+                        <p class="empty-hint">点击抽卡按钮开始</p>
+                    </div>
+                </div>
+
+                <!-- 右侧：数据统计 -->
+                <div class="stats-display">
+                    <h4>数据统计</h4>
+                    
+                    <!-- 统计概览 -->
+                    <div class="stats-overview">
+                        <div class="stats-row">
+                            <span class="stat-item">
+                                <span class="stat-label">总抽数:</span>
+                                <span class="stat-value" id="totalPulls">0</span>
+                            </span>
+                            <span class="stat-item ssr">
+                                <span class="stat-label">SSR:</span>
+                                <span class="stat-value" id="ssrCount">0</span>
+                            </span>
+                            <span class="stat-item sr">
+                                <span class="stat-label">SR:</span>
+                                <span class="stat-value" id="srCount">0</span>
+                            </span>
+                            <span class="stat-item r">
+                                <span class="stat-label">R:</span>
+                                <span class="stat-value" id="rCount">0</span>
+                            </span>
+                        </div>
+                        <div class="stats-row rates">
+                            <span class="stat-item ssr">
+                                <span class="stat-label">SSR率:</span>
+                                <span class="stat-value" id="ssrRate">0.00%</span>
+                            </span>
+                            <span class="stat-item sr">
+                                <span class="stat-label">SR率:</span>
+                                <span class="stat-value" id="srRate">0.00%</span>
+                            </span>
+                            <span class="stat-item r">
+                                <span class="stat-label">R率:</span>
+                                <span class="stat-value" id="rRate">0.00%</span>
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- 特定SSR统计 -->
+                    <div class="featured-ssr">
+                        <h5>卡池特定SSR获取</h5>
+                        <div class="featured-list" id="featuredList">
+                            <p class="empty-hint">暂无数据</p>
+                        </div>
+                    </div>
+
+                    <!-- 本次抽卡详情 -->
+                    <div class="pull-details">
+                        <h5>本次抽卡详情</h5>
+                        <div class="details-list" id="detailsList">
+                            <p class="empty-hint">暂无抽卡记录</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- 导出数据弹窗 -->
+<div class="modal" id="exportModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>抽卡数据</h3>
+            <button class="modal-close" id="closeModal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <textarea id="exportText" readonly></textarea>
+        </div>
+        <div class="modal-footer">
+            <button id="copyDataBtn" class="btn btn-primary">复制数据</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

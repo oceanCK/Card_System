@@ -1,0 +1,8 @@
+Flask>=2.0.0
+protobuf>=4.0.0
+grpcio>=1.50.0
+grpcio-tools>=1.50.0
+
+# 生产环境 WSGI 服务器
+gunicorn>=21.0.0; sys_platform != 'win32'  # Linux/Mac
+waitress>=2.1.0  # Windows/跨平台
