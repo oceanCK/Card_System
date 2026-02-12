@@ -29,8 +29,28 @@
 
     <!-- 主内容区 -->
     <main class="main-content">
-        <!-- 右上角抽卡数据按钮 -->
+        <!-- 右上角操作区 -->
         <div class="top-actions">
+            <!-- 模式切换 -->
+            <div class="mode-toggle" id="modeToggle">
+                <span class="mode-label">模式:</span>
+                <button id="modeLocalBtn" class="btn btn-mode" title="本地模式：数据存储在浏览器，修改cards.json后可刷新">
+                    🔌 本地
+                </button>
+                <button id="modeServerBtn" class="btn btn-mode" title="服务端模式：数据通过API获取">
+                    🌐 服务端
+                </button>
+            </div>
+            
+            <!-- 刷新数据按钮（仅本地模式显示） -->
+            <button id="refreshDataBtn" class="btn btn-refresh" title="重新加载cards.json数据">
+                🔄 刷新数据
+            </button>
+            
+            <!-- 模式指示器 -->
+            <span id="modeIndicator" class="mode-indicator local">🔌 本地模式</span>
+            
+            <!-- 导出数据按钮 -->
             <button id="exportDataBtn" class="btn btn-export">
                 📋 抽卡数据
             </button>

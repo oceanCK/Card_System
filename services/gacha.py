@@ -10,7 +10,7 @@ from pathlib import Path
 
 from models.card import Card
 from models.pool import Pool
-from config import CARD_RARITY, PITY_CONFIG
+from config import CARD_RARITY, PITY_CONFIG, PULL_LIMITS
 
 
 class UserSession:
@@ -345,12 +345,16 @@ class GachaService:
         
         return random.choice(cards)
     
-    def pull_single(self, session_id: str = None) -> Dict:
+    # 历史记录最大存储数量（防止内存溢出）
+    MAX_HISTORY_SIZE = PULL_LIMITS['max_history_size']
+    
+    def pull_single(self, session_id: str = None, save_history: bool = True) -> Dict:
         """
         单次抽卡
         
         Args:
             session_id: 用户会话ID
+            save_history: 是否保存到历史记录（批量抽卡时可禁用以提升性能）
         """
         session = self._get_or_create_session(session_id)
         
@@ -391,21 +395,39 @@ class GachaService:
             'card': card.to_dict(),
             'pity_count': session.pity_counter
         }
-        session.stats['pull_history'].append(pull_record)
+        
+        if save_history:
+            session.stats['pull_history'].append(pull_record)
+            # 限制历史记录大小，防止内存溢出
+            if len(session.stats['pull_history']) > self.MAX_HISTORY_SIZE:
+                session.stats['pull_history'] = session.stats['pull_history'][-self.MAX_HISTORY_SIZE:]
         
         return pull_record
     
-    def pull_multi(self, count: int = 10, session_id: str = None) -> List[Dict]:
+    def pull_multi(self, count: int = 10, session_id: str = None, return_limit: int = 100) -> List[Dict]:
         """
-        多次抽卡
+        多次抽卡（优化大批量抽卡性能）
         
         Args:
             count: 抽卡次数
             session_id: 用户会话ID
+            return_limit: 返回结果的最大数量（减少数据传输量）
         """
         results = []
-        for _ in range(count):
-            results.append(self.pull_single(session_id))
+        session = self._get_or_create_session(session_id)
+        
+        # 对于大批量抽卡，只保存最后一部分到历史记录
+        history_start_index = max(0, count - self.MAX_HISTORY_SIZE)
+        
+        for i in range(count):
+            # 只在需要保存历史记录时才记录
+            save_history = (i >= history_start_index)
+            result = self.pull_single(session_id, save_history=save_history)
+            
+            # 只保留最近的结果用于返回
+            if i >= count - return_limit:
+                results.append(result)
+        
         return results
     
     def get_statistics(self, session_id: str = None) -> Dict:

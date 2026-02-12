@@ -100,6 +100,7 @@
                 {"card_id": "SSR_001", "name": "愤怒小黄", "rarity": "SSR", "is_featured": false, "image_url": "/static/images/cards/fennvxiaohuang.png"},
                 {"card_id": "SR_L01", "name": "维嘉拱手", "rarity": "SR", "is_featured": false, "image_url": "/static/images/cards/weijiagongshou.png"},
                 {"card_id": "SR_L02", "name": "小狗微笑", "rarity": "SR", "is_featured": false, "image_url": "/static/images/cards/xiaogouweixiao.png"},
+                {"card_id": "SR_L03", "name": "汤匙老鼠", "rarity": "SR", "is_featured": false, "image_url": "/static/images/cards/tangchilaoshu.png"},
                 {"card_id": "SR_001", "name": "依托答辩", "rarity": "SR", "is_featured": false , "image_url": "/static/images/cards/yituodabian.png"},
                 {"card_id": "SR_002", "name": "谢娜扶额", "rarity": "SR", "is_featured": false, "image_url": "/static/images/cards/xienafue.png"},
                 {"card_id": "SR_003", "name": "小猫吹喇叭", "rarity": "SR", "is_featured": false, "image_url": "/static/images/cards/xiaomaochuilaba.png"},

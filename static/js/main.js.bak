@@ -1,0 +1,957 @@
+/**
+ * 抽卡概率工具 - 前端交互逻辑
+ * 模块化JavaScript结构
+ * 支持本地模式和服务端模式切换
+ */
+
+// ==================== 模式常量 ====================
+const MODE = {
+    LOCAL: 'local',
+    SERVER: 'server'
+};
+
+// ==================== 全局状态管理 ====================
+const AppState = {
+    currentPoolId: null,
+    isLoading: false,
+    lastResults: [],
+    mode: localStorage.getItem('gachaMode') || MODE.LOCAL, // 默认本地模式
+    localServiceReady: false,
+    serverAvailable: false  // 服务端接口是否可用
+};
+
+// ==================== DOM 元素引用 ====================
+const DOM = {
+    // 卡池相关
+    poolTabs: document.getElementById('poolTabs'),
+    poolDesc: document.getElementById('poolDesc'),
+    
+    // 抽卡按钮
+    pullSingle: document.getElementById('pullSingle'),
+    pullTen: document.getElementById('pullTen'),
+    pullCustom: document.getElementById('pullCustom'),
+    customCount: document.getElementById('customCount'),
+    resetBtn: document.getElementById('resetBtn'),
+    
+    // 统计显示
+    totalPulls: document.getElementById('totalPulls'),
+    ssrCount: document.getElementById('ssrCount'),
+    srCount: document.getElementById('srCount'),
+    rCount: document.getElementById('rCount'),
+    ssrRate: document.getElementById('ssrRate'),
+    srRate: document.getElementById('srRate'),
+    rRate: document.getElementById('rRate'),
+    
+    // 结果展示
+    cardsGrid: document.getElementById('cardsGrid'),
+    featuredList: document.getElementById('featuredList'),
+    detailsList: document.getElementById('detailsList'),
+    
+    // 弹窗相关
+    exportDataBtn: document.getElementById('exportDataBtn'),
+    exportModal: document.getElementById('exportModal'),
+    closeModal: document.getElementById('closeModal'),
+    exportText: document.getElementById('exportText'),
+    copyDataBtn: document.getElementById('copyDataBtn'),
+    
+    // 模式切换相关
+    modeToggle: document.getElementById('modeToggle'),
+    modeLocalBtn: document.getElementById('modeLocalBtn'),
+    modeServerBtn: document.getElementById('modeServerBtn'),
+    refreshDataBtn: document.getElementById('refreshDataBtn'),
+    modeIndicator: document.getElementById('modeIndicator')
+};
+
+// ==================== API 请求模块 ====================
+const API = {
+    /**
+     * 发送GET请求
+     */
+    async get(url) {
+        try {
+            const response = await fetch(url, {
+                credentials: 'same-origin'  // 确保发送cookie以保持会话
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('API GET Error:', error);
+            throw error;
+        }
+    },
+    
+    /**
+     * 发送POST请求
+     */
+    async post(url, data = {}) {
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin',  // 确保发送cookie以保持会话
+                body: JSON.stringify(data)
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('API POST Error:', error);
+            throw error;
+        }
+    },
+    
+    // API端点方法
+    setPool: (poolId, autoReset = true) => API.post(`/api/pools/${poolId}`, { auto_reset: autoReset }),
+    pullSingle: () => API.post('/api/pull/single'),
+    pullMulti: (count) => API.post('/api/pull/multi', { count }),
+    getStats: () => API.get('/api/stats'),
+    getHistory: (limit = 50) => API.get(`/api/history?limit=${limit}`),
+    getExportData: () => API.get('/api/export'),
+    reset: () => API.post('/api/reset')
+};
+
+// ==================== 统一抽卡引擎接口 ====================
+const GachaEngine = {
+    /**
+     * 判断当前是否为本地模式
+     */
+    isLocalMode() {
+        return AppState.mode === MODE.LOCAL;
+    },
+
+    /**
+     * 检测服务端接口是否可用
+     * 返回: { available: boolean, message: string }
+     */
+    async checkServerAvailable() {
+        try {
+            // 调用服务端状态检测接口
+            const response = await fetch('/api/server-status', {
+                method: 'GET',
+                credentials: 'same-origin',
+                signal: AbortSignal.timeout(3000)
+            });
+            
+            if (!response.ok) {
+                return { available: false, message: `服务端响应异常 (${response.status})` };
+            }
+            
+            const data = await response.json();
+            
+            // 检查Unity Protobuf接口是否可用
+            if (data.success && data.available) {
+                AppState.serverAvailable = true;
+                return { available: true, message: '服务端连接正常' };
+            } else {
+                AppState.serverAvailable = false;
+                return { 
+                    available: false, 
+                    message: data.message || '服务端接口不可用' 
+                };
+            }
+        } catch (error) {
+            console.warn('[Server] 服务端检测失败:', error.message);
+            AppState.serverAvailable = false;
+            
+            if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+                return { available: false, message: '服务端连接超时' };
+            }
+            return { available: false, message: '服务端接口不可用' };
+        }
+    },
+
+    /**
+     * 服务端不可用时的统一返回
+     */
+    _serverUnavailableResponse(action = '操作') {
+        return {
+            success: false,
+            message: `服务端接口不可用，无法${action}。\n请切换到本地模式`
+        };
+    },
+
+    /**
+     * 设置卡池
+     */
+    async setPool(poolId, autoReset = true) {
+        if (this.isLocalMode()) {
+            return localGachaService.setCurrentPool(poolId, autoReset);
+        } else {
+            if (!AppState.serverAvailable) {
+                return this._serverUnavailableResponse('设置卡池');
+            }
+            return await API.setPool(poolId, autoReset);
+        }
+    },
+
+    /**
+     * 单抽
+     */
+    async pullSingle() {
+        if (this.isLocalMode()) {
+            return localGachaService.pullSingle();
+        } else {
+            if (!AppState.serverAvailable) {
+                return this._serverUnavailableResponse('抽卡');
+            }
+            return await API.pullSingle();
+        }
+    },
+
+    /**
+     * 多抽
+     */
+    async pullMulti(count) {
+        if (this.isLocalMode()) {
+            return localGachaService.pullMulti(count);
+        } else {
+            if (!AppState.serverAvailable) {
+                return this._serverUnavailableResponse('抽卡');
+            }
+            return await API.pullMulti(count);
+        }
+    },
+
+    /**
+     * 获取统计数据
+     */
+    async getStats() {
+        if (this.isLocalMode()) {
+            return localGachaService.getStatistics();
+        } else {
+            if (!AppState.serverAvailable) {
+                return this._serverUnavailableResponse('获取统计');
+            }
+            return await API.getStats();
+        }
+    },
+
+    /**
+     * 获取历史记录
+     */
+    async getHistory(limit = 50) {
+        if (this.isLocalMode()) {
+            return localGachaService.getHistory(limit);
+        } else {
+            if (!AppState.serverAvailable) {
+                return this._serverUnavailableResponse('获取历史');
+            }
+            return await API.getHistory(limit);
+        }
+    },
+
+    /**
+     * 获取导出数据
+     */
+    async getExportData() {
+        if (this.isLocalMode()) {
+            return localGachaService.getExportData();
+        } else {
+            if (!AppState.serverAvailable) {
+                return this._serverUnavailableResponse('导出数据');
+            }
+            return await API.getExportData();
+        }
+    },
+
+    /**
+     * 重置
+     */
+    async reset() {
+        if (this.isLocalMode()) {
+            return localGachaService.reset();
+        } else {
+            if (!AppState.serverAvailable) {
+                return this._serverUnavailableResponse('重置');
+            }
+            return await API.reset();
+        }
+    },
+
+    /**
+     * 刷新数据（仅本地模式）
+     */
+    async refreshData() {
+        if (this.isLocalMode()) {
+            return await localGachaService.refreshData();
+        }
+        return { success: false, message: '服务端模式无需手动刷新' };
+    },
+
+    /**
+     * 获取所有卡池（用于本地模式初始化）
+     */
+    getAllPools() {
+        if (this.isLocalMode()) {
+            return localGachaService.getAllPools();
+        }
+        return [];
+    },
+
+    /**
+     * 获取当前卡池
+     */
+    getCurrentPool() {
+        if (this.isLocalMode()) {
+            return localGachaService.getCurrentPool();
+        }
+        return null;
+    }
+};
+
+// ==================== UI 更新模块 ====================
+const UI = {
+    /**
+     * 更新统计数据显示
+     */
+    updateStats(stats) {
+        DOM.totalPulls.textContent = stats.total_pulls;
+        DOM.ssrCount.textContent = stats.ssr_count;
+        DOM.srCount.textContent = stats.sr_count;
+        DOM.rCount.textContent = stats.r_count;
+        DOM.ssrRate.textContent = stats.ssr_rate;
+        DOM.srRate.textContent = stats.sr_rate;
+        DOM.rRate.textContent = stats.r_rate;
+        
+        // 更新特定SSR统计
+        this.updateFeaturedSSR(stats.featured_ssr_counts);
+    },
+    
+    /**
+     * 更新特定SSR获取统计
+     */
+    updateFeaturedSSR(counts) {
+        if (!counts || Object.keys(counts).length === 0) {
+            DOM.featuredList.innerHTML = '<p class="empty-hint">暂无数据</p>';
+            return;
+        }
+        
+        let html = '';
+        for (const [id, count] of Object.entries(counts)) {
+            html += `
+                <div class="featured-item">
+                    <span class="featured-name">${id}</span>
+                    <span class="featured-count">${count} 张</span>
+                </div>
+            `;
+        }
+        DOM.featuredList.innerHTML = html;
+    },
+    
+    /**
+     * 显示抽卡结果卡片
+     */
+    showCards(results) {
+        // 最多显示10张
+        const displayResults = results.slice(-10);
+        
+        // 根据卡片数量调整样式
+        if (displayResults.length === 1) {
+            DOM.cardsGrid.classList.add('single-card');
+        } else {
+            DOM.cardsGrid.classList.remove('single-card');
+        }
+        
+        let html = '';
+        displayResults.forEach(result => {
+            const card = result.card;
+            const rarityClass = card.rarity.toLowerCase();
+            const imageUrl = card.image_url || `/static/images/cards/${card.card_id}.png`;
+            html += `
+                <div class="card-item ${rarityClass}">
+                    <img class="card-image" src="${imageUrl}" alt="${card.name}" 
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="card-placeholder" style="display:none;">
+                        <span class="card-rarity">${card.rarity}</span>
+                        <span class="card-name">${card.name}</span>
+                    </div>
+                    <div class="card-info">
+                        <span class="card-rarity">${card.rarity}</span>
+                        <span class="card-name">${card.name}</span>
+                    </div>
+                </div>
+            `;
+        });
+        
+        DOM.cardsGrid.innerHTML = html || '<p class="empty-hint">点击抽卡按钮开始</p>';
+    },
+    
+    /**
+     * 更新抽卡详情列表
+     */
+    updateDetails(results) {
+        if (!results || results.length === 0) {
+            DOM.detailsList.innerHTML = '<p class="empty-hint">暂无抽卡记录</p>';
+            return;
+        }
+        
+        // 显示最近的记录，新的在上面
+        const displayResults = [...results].reverse().slice(0, 50);
+        
+        let html = '';
+        displayResults.forEach(result => {
+            const card = result.card;
+            const rarityClass = card.rarity.toLowerCase();
+            html += `
+                <div class="detail-item">
+                    <span class="detail-rarity ${rarityClass}">${card.rarity}</span>
+                    <span class="detail-id">${card.card_id}</span>
+                    <span class="detail-name">${card.name}</span>
+                </div>
+            `;
+        });
+        
+        DOM.detailsList.innerHTML = html;
+    },
+    
+    /**
+     * 设置加载状态
+     */
+    setLoading(loading) {
+        AppState.isLoading = loading;
+        const buttons = [DOM.pullSingle, DOM.pullTen, DOM.pullCustom];
+        buttons.forEach(btn => {
+            btn.disabled = loading;
+            if (loading) {
+                btn.style.opacity = '0.6';
+            } else {
+                btn.style.opacity = '1';
+            }
+        });
+    },
+    
+    /**
+     * 显示弹窗
+     */
+    showModal(text) {
+        DOM.exportText.value = text;
+        DOM.exportModal.classList.add('show');
+    },
+    
+    /**
+     * 隐藏弹窗
+     */
+    hideModal() {
+        DOM.exportModal.classList.remove('show');
+    },
+    
+    /**
+     * 重置UI显示
+     */
+    resetUI() {
+        DOM.totalPulls.textContent = '0';
+        DOM.ssrCount.textContent = '0';
+        DOM.srCount.textContent = '0';
+        DOM.rCount.textContent = '0';
+        DOM.ssrRate.textContent = '0.00%';
+        DOM.srRate.textContent = '0.00%';
+        DOM.rRate.textContent = '0.00%';
+        DOM.cardsGrid.classList.remove('single-card');
+        DOM.cardsGrid.innerHTML = '<p class="empty-hint">点击抽卡按钮开始</p>';
+        DOM.featuredList.innerHTML = '<p class="empty-hint">暂无数据</p>';
+        DOM.detailsList.innerHTML = '<p class="empty-hint">暂无抽卡记录</p>';
+        AppState.lastResults = [];
+        
+        // 本地模式时确保抽卡按钮可用
+        if (AppState.mode === MODE.LOCAL) {
+            this.enablePullButtons();
+        }
+    },
+
+    /**
+     * 启用抽卡按钮
+     */
+    enablePullButtons() {
+        DOM.pullSingle.disabled = false;
+        DOM.pullTen.disabled = false;
+        DOM.pullCustom.disabled = false;
+        DOM.pullSingle.style.opacity = '1';
+        DOM.pullTen.style.opacity = '1';
+        DOM.pullCustom.style.opacity = '1';
+    },
+
+    /**
+     * 禁用抽卡按钮
+     */
+    disablePullButtons() {
+        DOM.pullSingle.disabled = true;
+        DOM.pullTen.disabled = true;
+        DOM.pullCustom.disabled = true;
+        DOM.pullSingle.style.opacity = '0.5';
+        DOM.pullTen.style.opacity = '0.5';
+        DOM.pullCustom.style.opacity = '0.5';
+    },
+
+    /**
+     * 更新模式UI
+     */
+    updateModeUI() {
+        const isLocal = AppState.mode === MODE.LOCAL;
+        
+        // 更新按钮状态
+        if (DOM.modeLocalBtn) {
+            DOM.modeLocalBtn.classList.toggle('active', isLocal);
+        }
+        if (DOM.modeServerBtn) {
+            DOM.modeServerBtn.classList.toggle('active', !isLocal);
+        }
+        
+        // 更新指示器
+        if (DOM.modeIndicator) {
+            if (isLocal) {
+                DOM.modeIndicator.textContent = '🔌 本地模式';
+                DOM.modeIndicator.className = 'mode-indicator local';
+            } else {
+                DOM.modeIndicator.textContent = AppState.serverAvailable ? '🌐 服务端模式' : '⚠️ 服务端不可用';
+                DOM.modeIndicator.className = `mode-indicator ${AppState.serverAvailable ? 'server' : 'unavailable'}`;
+            }
+        }
+        
+        // 显示/隐藏刷新按钮
+        if (DOM.refreshDataBtn) {
+            DOM.refreshDataBtn.style.display = isLocal ? 'inline-flex' : 'none';
+        }
+    },
+
+    /**
+     * 显示服务端不可用提示
+     */
+    showServerUnavailable(message) {
+        // 清空卡池标签，显示无数据
+        DOM.poolTabs.innerHTML = '<span class="no-data-hint">暂无卡池数据</span>';
+        DOM.poolDesc.textContent = message || '服务端接口不可用';
+        
+        // 更新卡片显示区域
+        DOM.cardsGrid.innerHTML = `
+            <div class="server-unavailable">
+                <div class="unavailable-icon">🔌</div>
+                <div class="unavailable-title">服务端接口不可用</div>
+                <div class="unavailable-message">${message || '服务端接口不可用'}</div>
+                <div class="unavailable-hint">请切换到本地模式使用</div>
+            </div>
+        `;
+        
+        // 禁用抽卡按钮
+        this.disablePullButtons();
+        
+        // 更新统计显示
+        DOM.featuredList.innerHTML = '<p class="empty-hint">服务端不可用</p>';
+        DOM.detailsList.innerHTML = '<p class="empty-hint">服务端不可用</p>';
+        
+        // 更新模式指示器
+        if (DOM.modeIndicator) {
+            DOM.modeIndicator.textContent = '⚠️ 服务端不可用';
+            DOM.modeIndicator.className = 'mode-indicator unavailable';
+        }
+    }
+};
+
+// ==================== 事件处理模块 ====================
+const EventHandlers = {
+    /**
+     * 卡池切换
+     */
+    async handlePoolChange(e) {
+        const tab = e.target.closest('.pool-tab');
+        if (!tab) return;
+        
+        const poolId = tab.dataset.poolId;
+        if (poolId === AppState.currentPoolId) return;
+        
+        try {
+            const result = await GachaEngine.setPool(poolId);
+            if (result.success) {
+                AppState.currentPoolId = poolId;
+                
+                // 更新UI
+                document.querySelectorAll('.pool-tab').forEach(t => {
+                    t.classList.remove('active');
+                });
+                tab.classList.add('active');
+                
+                DOM.poolDesc.textContent = result.pool.description;
+                
+                // 切换卡池时重置前端显示
+                UI.resetUI();
+                
+                // 获取新卡池的统计数据
+                const statsResult = await GachaEngine.getStats();
+                if (statsResult.success) {
+                    UI.updateStats(statsResult.stats);
+                }
+            }
+        } catch (error) {
+            console.error('切换卡池失败:', error);
+        }
+    },
+    
+    /**
+     * 单抽
+     */
+    async handlePullSingle() {
+        if (AppState.isLoading) return;
+        
+        UI.setLoading(true);
+        try {
+            const result = await GachaEngine.pullSingle();
+            if (result.success) {
+                // 显示本次抽卡结果
+                UI.showCards([result.result]);
+                
+                // 本地模式需要单独获取统计
+                const statsResult = await GachaEngine.getStats();
+                if (statsResult.success) {
+                    UI.updateStats(statsResult.stats);
+                }
+                
+                // 获取完整历史记录
+                const historyResult = await GachaEngine.getHistory(50);
+                if (historyResult.success) {
+                    UI.updateDetails(historyResult.history);
+                }
+            } else {
+                // 显示错误提示
+                alert(result.message || '抽卡失败');
+            }
+        } catch (error) {
+            console.error('抽卡失败:', error);
+            alert('抽卡请求失败，请检查网络连接');
+        } finally {
+            UI.setLoading(false);
+        }
+    },
+    
+    /**
+     * 十连抽
+     */
+    async handlePullTen() {
+        if (AppState.isLoading) return;
+        
+        UI.setLoading(true);
+        try {
+            const result = await GachaEngine.pullMulti(10);
+            if (result.success) {
+                // 显示本次抽卡结果
+                UI.showCards(result.results);
+                
+                // 获取统计
+                const statsResult = await GachaEngine.getStats();
+                if (statsResult.success) {
+                    UI.updateStats(statsResult.stats);
+                }
+                
+                // 获取完整历史记录
+                const historyResult = await GachaEngine.getHistory(50);
+                if (historyResult.success) {
+                    UI.updateDetails(historyResult.history);
+                }
+            } else {
+                // 显示错误提示
+                alert(result.message || '抽卡失败');
+            }
+        } catch (error) {
+            console.error('抽卡失败:', error);
+            alert('抽卡请求失败，请检查网络连接');
+        } finally {
+            UI.setLoading(false);
+        }
+    },
+    
+    /**
+     * 自定义抽卡
+     */
+    async handlePullCustom() {
+        if (AppState.isLoading) return;
+        
+        const count = parseInt(DOM.customCount.value) || 10;
+        if (count < 1 || count > 100000) {
+            alert('请输入1-100000之间的数字');
+            return;
+        }
+        
+        UI.setLoading(true);
+        try {
+            const result = await GachaEngine.pullMulti(count);
+            if (result.success) {
+                // 显示本次抽卡结果
+                UI.showCards(result.results);
+                
+                // 获取统计
+                const statsResult = await GachaEngine.getStats();
+                if (statsResult.success) {
+                    UI.updateStats(statsResult.stats);
+                }
+                
+                // 获取完整历史记录
+                const historyResult = await GachaEngine.getHistory(50);
+                if (historyResult.success) {
+                    UI.updateDetails(historyResult.history);
+                }
+            } else {
+                // 显示错误提示
+                alert(result.message || '抽卡失败');
+            }
+        } catch (error) {
+            console.error('抽卡失败:', error);
+            alert('抽卡请求失败，请检查网络连接');
+        } finally {
+            UI.setLoading(false);
+        }
+    },
+    
+    /**
+     * 重置
+     */
+    async handleReset() {
+        if (!confirm('确定要重置所有抽卡数据吗？')) return;
+        
+        try {
+            const result = await GachaEngine.reset();
+            if (result.success) {
+                UI.resetUI();
+            }
+        } catch (error) {
+            console.error('重置失败:', error);
+        }
+    },
+    
+    /**
+     * 导出数据
+     */
+    async handleExport() {
+        try {
+            const result = await GachaEngine.getExportData();
+            if (result.success) {
+                UI.showModal(result.data);
+            }
+        } catch (error) {
+            console.error('导出失败:', error);
+        }
+    },
+    
+    /**
+     * 复制数据
+     */
+    handleCopyData() {
+        DOM.exportText.select();
+        document.execCommand('copy');
+        
+        // 显示复制成功提示
+        const originalText = DOM.copyDataBtn.textContent;
+        DOM.copyDataBtn.textContent = '已复制!';
+        setTimeout(() => {
+            DOM.copyDataBtn.textContent = originalText;
+        }, 1500);
+    },
+
+    /**
+     * 模式切换
+     */
+    async handleModeSwitch(mode) {
+        if (mode === AppState.mode) return;
+        
+        // 切换到服务端模式时先检测可用性
+        if (mode === MODE.SERVER) {
+            UI.setLoading(true);
+            const checkResult = await GachaEngine.checkServerAvailable();
+            UI.setLoading(false);
+            
+            if (!checkResult.available) {
+                // 服务端不可用，显示提示但仍允许切换（显示无数据状态）
+                if (!confirm(`${checkResult.message}\n\n服务端接口尚未对接，切换后将显示无数据状态。\n是否仍要切换？`)) {
+                    return;
+                }
+            }
+        }
+        
+        // 切换模式
+        AppState.mode = mode;
+        localStorage.setItem('gachaMode', mode);
+        
+        // 更新UI
+        UI.updateModeUI();
+        
+        // 重置显示
+        UI.resetUI();
+        
+        // 重新初始化
+        await initGachaEngine();
+    },
+
+    /**
+     * 刷新数据（本地模式）
+     */
+    async handleRefreshData() {
+        if (!GachaEngine.isLocalMode()) {
+            alert('服务端模式无需手动刷新数据');
+            return;
+        }
+
+        try {
+            const result = await GachaEngine.refreshData();
+            if (result.success) {
+                // 刷新卡池显示
+                await refreshPoolTabs();
+                alert('数据刷新成功！卡池信息已更新。');
+            } else {
+                alert('数据刷新失败：' + result.message);
+            }
+        } catch (error) {
+            console.error('刷新数据失败:', error);
+            alert('刷新数据失败，请检查控制台');
+        }
+    }
+};
+
+// ==================== 抽卡引擎初始化 ====================
+async function initGachaEngine() {
+    if (GachaEngine.isLocalMode()) {
+        // 本地模式：加载卡池数据
+        console.log('[Init] 正在初始化本地模式...');
+        const loaded = await localGachaService.loadPoolsData();
+        if (!loaded) {
+            console.error('[Init] 本地数据加载失败，尝试切换到服务端模式');
+            alert('本地数据加载失败，请检查 data/cards.json 文件是否存在');
+            return false;
+        }
+        AppState.localServiceReady = true;
+        
+        // 刷新卡池标签
+        await refreshPoolTabs();
+        
+        // 确保本地模式下抽卡按钮可用
+        UI.enablePullButtons();
+    } else {
+        // 服务端模式：检测接口可用性
+        console.log('[Init] 正在初始化服务端模式...');
+        const checkResult = await GachaEngine.checkServerAvailable();
+        
+        if (!checkResult.available) {
+            console.warn('[Init] 服务端接口不可用:', checkResult.message);
+            // 显示服务端不可用的提示界面
+            UI.showServerUnavailable(checkResult.message);
+            return false;
+        }
+    }
+    
+    // 初始化卡池选择
+    const activeTab = document.querySelector('.pool-tab.active');
+    if (activeTab) {
+        AppState.currentPoolId = activeTab.dataset.poolId;
+        try {
+            const result = await GachaEngine.setPool(AppState.currentPoolId, false);
+            if (!result.success) {
+                console.warn('[Init] 设置卡池失败:', result.message);
+                return false;
+            }
+            const statsResult = await GachaEngine.getStats();
+            if (statsResult.success) {
+                UI.updateStats(statsResult.stats);
+            }
+            const historyResult = await GachaEngine.getHistory(50);
+            if (historyResult.success && historyResult.history.length > 0) {
+                UI.updateDetails(historyResult.history);
+            }
+        } catch (error) {
+            console.error('初始化卡池失败:', error);
+        }
+    } else {
+        const firstTab = document.querySelector('.pool-tab');
+        if (firstTab) {
+            firstTab.classList.add('active');
+            AppState.currentPoolId = firstTab.dataset.poolId;
+            try {
+                const result = await GachaEngine.setPool(AppState.currentPoolId, false);
+                if (result.success) {
+                    DOM.poolDesc.textContent = result.pool.description;
+                }
+            } catch (error) {
+                console.error('初始化卡池失败:', error);
+            }
+        }
+    }
+    
+    return true;
+}
+
+// ==================== 刷新卡池标签 ====================
+async function refreshPoolTabs() {
+    if (!GachaEngine.isLocalMode()) return;
+    
+    const pools = GachaEngine.getAllPools();
+    if (pools.length === 0) return;
+    
+    // 更新卡池标签
+    let html = '';
+    pools.forEach((pool, index) => {
+        const isActive = pool.pool_id === AppState.currentPoolId || 
+                        (index === 0 && !AppState.currentPoolId);
+        html += `
+            <button class="pool-tab ${isActive ? 'active' : ''}" 
+                    data-pool-id="${pool.pool_id}">
+                ${pool.name}
+            </button>
+        `;
+    });
+    DOM.poolTabs.innerHTML = html;
+    
+    // 更新描述
+    const currentPool = GachaEngine.getCurrentPool();
+    if (currentPool) {
+        DOM.poolDesc.textContent = currentPool.description;
+    }
+}
+
+// ==================== 初始化 ====================
+async function init() {
+    // 初始化模式UI
+    UI.updateModeUI();
+    
+    // 绑定模式切换事件
+    if (DOM.modeLocalBtn) {
+        DOM.modeLocalBtn.addEventListener('click', () => EventHandlers.handleModeSwitch(MODE.LOCAL));
+    }
+    if (DOM.modeServerBtn) {
+        DOM.modeServerBtn.addEventListener('click', () => EventHandlers.handleModeSwitch(MODE.SERVER));
+    }
+    if (DOM.refreshDataBtn) {
+        DOM.refreshDataBtn.addEventListener('click', EventHandlers.handleRefreshData);
+    }
+
+    // 绑定卡池切换事件
+    DOM.poolTabs.addEventListener('click', EventHandlers.handlePoolChange);
+    
+    // 绑定抽卡按钮事件
+    DOM.pullSingle.addEventListener('click', EventHandlers.handlePullSingle);
+    DOM.pullTen.addEventListener('click', EventHandlers.handlePullTen);
+    DOM.pullCustom.addEventListener('click', EventHandlers.handlePullCustom);
+    
+    // 绑定重置按钮事件
+    DOM.resetBtn.addEventListener('click', EventHandlers.handleReset);
+    
+    // 绑定导出相关事件
+    DOM.exportDataBtn.addEventListener('click', EventHandlers.handleExport);
+    DOM.closeModal.addEventListener('click', UI.hideModal);
+    DOM.copyDataBtn.addEventListener('click', EventHandlers.handleCopyData);
+    
+    // 点击弹窗外部关闭
+    DOM.exportModal.addEventListener('click', (e) => {
+        if (e.target === DOM.exportModal) {
+            UI.hideModal();
+        }
+    });
+    
+    // 回车键触发自定义抽卡
+    DOM.customCount.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            EventHandlers.handlePullCustom();
+        }
+    });
+    
+    // 初始化抽卡引擎
+    await initGachaEngine();
+    
+    console.log(`抽卡概率工具已初始化 [${AppState.mode === MODE.LOCAL ? '本地模式' : '服务端模式'}]`);
+}
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', init);

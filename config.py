@@ -47,6 +47,14 @@ PITY_CONFIG = {
     'pity_increase': 0.06  # 软保底后每抽增加概率
 }
 
+# 抽卡限制配置
+PULL_LIMITS = {
+    'max_single_pull_local': 10000,    # 本地模式单次最大抽卡数
+    'max_single_pull_server': 100000,  # 服务端模式单次最大抽卡数（压测用）
+    'max_history_size': 1000,          # 历史记录最大存储数量
+    'max_return_results': 100          # API返回结果最大数量
+}
+
 # 服务器配置
 import os
 
@@ -55,7 +63,7 @@ ENV = os.environ.get('FLASK_ENV', 'development')
 
 SERVER_CONFIG = {
     'host': os.environ.get('HOST', '0.0.0.0'),
-    'port': int(os.environ.get('PORT', 5007)),
+    'port': int(os.environ.get('PORT', 5010)),
     'debug': ENV == 'development',
     'workers': int(os.environ.get('WORKERS', 4)),  # 生产环境 worker 数量
 }

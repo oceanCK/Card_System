@@ -1,10 +1,12 @@
 """
 抽卡路由 - 处理抽卡相关的HTTP请求
 """
-from flask import Blueprint, jsonify, request, render_template, session
+from flask import Blueprint, jsonify, request, render_template, session, send_from_directory
+from pathlib import Path
 import uuid
 
 from services.gacha import gacha_service
+from config import PULL_LIMITS
 
 # 创建蓝图
 gacha_bp = Blueprint('gacha', __name__)
@@ -80,16 +82,21 @@ def pull_multi():
     data = request.get_json() or {}
     count = data.get('count', 10)
     
-    # 限制单次最大抽卡数
-    count = min(max(1, int(count)), 100000)
+    # 服务端模式支持10万次抽卡（压测用）
+    max_single_pull = PULL_LIMITS['max_single_pull_server']
+    count = min(max(1, int(count)), max_single_pull)
     
-    results = gacha_service.pull_multi(count, session_id)
+    # 返回结果限制，减少数据传输量
+    return_limit = PULL_LIMITS['max_return_results']
+    results = gacha_service.pull_multi(count, session_id, return_limit=return_limit)
     stats = gacha_service.get_statistics(session_id)
     
     return jsonify({
         'success': True,
         'results': results,
-        'stats': stats
+        'stats': stats,
+        'actual_count': count,  # 告知前端实际抽卡次数
+        'returned_count': len(results)  # 告知前端返回的结果数量
     })
 
 
@@ -152,3 +159,34 @@ def get_current_pool():
         'success': False,
         'message': '未设置卡池'
     }), 404
+
+
+@gacha_bp.route('/data/cards.json', methods=['GET'])
+def get_cards_data():
+    """
+    提供cards.json数据访问
+    用于本地模式加载卡池数据
+    """
+    data_path = Path(__file__).parent.parent / 'data'
+    return send_from_directory(data_path, 'cards.json')
+
+
+@gacha_bp.route('/api/server-status', methods=['GET'])
+def get_server_status():
+    """
+    获取服务端状态
+    用于前端判断Unity Protobuf接口是否可用
+    
+    Returns:
+        available: 服务端是否可用
+        type: 接口类型 ('unity_protobuf' | 'flask_json')
+        message: 状态说明
+    """
+    # TODO: 当Unity Protobuf接口对接完成后，修改此处的返回值
+    # 目前返回不可用状态，表示Unity接口还未对接
+    return jsonify({
+        'success': True,
+        'available': False,
+        'type': 'unity_protobuf',
+        'message': '等待服务端接口对接'
+    })

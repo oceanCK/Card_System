@@ -10,6 +10,15 @@
     <div class="app-container">
         {% block content %}{% endblock %}
     </div>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <!-- 本地抽卡引擎 -->
+    <script src="{{ url_for('static', filename='js/local-gacha.js') }}"></script>
+    
+    <!-- 模块化脚本 (按依赖顺序加载) -->
+    <script src="{{ url_for('static', filename='js/modules/config.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modules/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modules/gacha-engine.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modules/event-handlers.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modules/app.js') }}"></script>
 </body>
 </html>
