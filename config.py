@@ -63,7 +63,7 @@ ENV = os.environ.get('FLASK_ENV', 'development')
 
 SERVER_CONFIG = {
     'host': os.environ.get('HOST', '0.0.0.0'),
-    'port': int(os.environ.get('PORT', 5010)),
+    'port': int(os.environ.get('PORT', 5007)),
     'debug': ENV == 'development',
     'workers': int(os.environ.get('WORKERS', 4)),  # 生产环境 worker 数量
 }
