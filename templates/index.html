@@ -14,11 +14,6 @@
                     <span class="menu-icon">🎴</span>
                     <span class="menu-text">抽卡概率工具</span>
                 </li>
-                <li class="menu-item disabled" data-menu="compare">
-                    <span class="menu-icon">📊</span>
-                    <span class="menu-text">数值比拼</span>
-                    <span class="coming-soon">待开发...</span>
-                </li>
             </ul>
         </nav>
         
@@ -83,6 +78,18 @@
                 </div>
             </div>
             <button id="resetBtn" class="btn btn-reset">重置</button>
+            
+            <!-- 进度条 -->
+            <div id="progressContainer" class="progress-container" style="display: none;">
+                <div class="progress-info">
+                    <span class="progress-text">抽卡进度</span>
+                    <span class="progress-detail" id="progressDetail">0 / 0</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <span class="progress-percent" id="progressPercent">0%</span>
+            </div>
         </section>
 
         <!-- 结果展示区 -->
@@ -165,9 +172,21 @@
             <button class="modal-close" id="closeModal">&times;</button>
         </div>
         <div class="modal-body">
+            <!-- 导出数据生成进度条 -->
+            <div id="exportProgressContainer" class="progress-container" style="display: none;">
+                <div class="progress-info">
+                    <span class="progress-text">正在生成数据...</span>
+                    <span class="progress-detail" id="exportProgressDetail">0 / 0</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="exportProgressFill"></div>
+                </div>
+                <span class="progress-percent" id="exportProgressPercent">0%</span>
+            </div>
             <textarea id="exportText" readonly></textarea>
         </div>
         <div class="modal-footer">
+            <button id="downloadDataBtn" class="btn btn-export" style="display: none;">📥 下载完整数据</button>
             <button id="copyDataBtn" class="btn btn-primary">复制数据</button>
         </div>
     </div>

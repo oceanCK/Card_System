@@ -398,9 +398,6 @@ class GachaService:
         
         if save_history:
             session.stats['pull_history'].append(pull_record)
-            # 限制历史记录大小，防止内存溢出
-            if len(session.stats['pull_history']) > self.MAX_HISTORY_SIZE:
-                session.stats['pull_history'] = session.stats['pull_history'][-self.MAX_HISTORY_SIZE:]
         
         return pull_record
     
@@ -416,13 +413,8 @@ class GachaService:
         results = []
         session = self._get_or_create_session(session_id)
         
-        # 对于大批量抽卡，只保存最后一部分到历史记录
-        history_start_index = max(0, count - self.MAX_HISTORY_SIZE)
-        
         for i in range(count):
-            # 只在需要保存历史记录时才记录
-            save_history = (i >= history_start_index)
-            result = self.pull_single(session_id, save_history=save_history)
+            result = self.pull_single(session_id, save_history=True)
             
             # 只保留最近的结果用于返回
             if i >= count - return_limit:
@@ -490,70 +482,73 @@ class GachaService:
         stats = self.get_statistics(session_id)
         
         lines = []
-        lines.append(f"【抽卡数据导出】")
-        lines.append(f"卡库ID: {pool.library_id if pool else 'N/A'}")
-        lines.append(f"")
-        lines.append(f"=== 卡牌信息列表 ===")
         
-        # 按10个一组输出历史记录
-        for i, record in enumerate(session.stats['pull_history']):
-            card = record['card']
-            line = f"{record['pull_number']}. [{card['card_id']}] {card['rarity']} - {card['name']}"
-            lines.append(line)
-            if (i + 1) % 10 == 0:
-                lines.append("")  # 每10条换行
+        # 卡库ID
+        if pool and pool.library_id:
+            lines.append(f"卡库ID: {pool.library_id}")
+            lines.append("")
         
-        lines.append(f"")
-        lines.append(f"=== 品级占比 ===")
-        lines.append(f"SSR 占 {stats['ssr_rate']}")
+        lines.append("=== 品级占比 ===")
         
-        # SSR详细统计
+        # 统计各品级卡牌
         ssr_cards = {}
-        for record in session.stats['pull_history']:
-            if record['card']['rarity'] == 'SSR':
-                card_id = record['card']['card_id']
-                card_name = record['card']['name']
-                key = f"{card_id}_{card_name}"
-                ssr_cards[key] = ssr_cards.get(key, {'id': card_id, 'name': card_name, 'count': 0})
-                ssr_cards[key]['count'] += 1
-        
-        for key, info in ssr_cards.items():
-            rate = (info['count'] / stats['ssr_count'] * 100) if stats['ssr_count'] > 0 else 0
-            lines.append(f"  - {info['id']}: {info['name']}, 数量 {info['count']}, 占比 {rate:.2f}%")
-        
-        lines.append(f"")
-        lines.append(f"SR 占 {stats['sr_rate']}")
-        
-        # SR详细统计
         sr_cards = {}
-        for record in session.stats['pull_history']:
-            if record['card']['rarity'] == 'SR':
-                card_id = record['card']['card_id']
-                card_name = record['card']['name']
-                key = f"{card_id}_{card_name}"
-                sr_cards[key] = sr_cards.get(key, {'id': card_id, 'name': card_name, 'count': 0})
-                sr_cards[key]['count'] += 1
-        
-        for key, info in sr_cards.items():
-            rate = (info['count'] / stats['sr_count'] * 100) if stats['sr_count'] > 0 else 0
-            lines.append(f"  - {info['id']}: {info['name']}, 数量 {info['count']}, 占比 {rate:.2f}%")
-        
-        lines.append(f"")
-        lines.append(f"R 占 {stats['r_rate']}")
-        
-        # R详细统计
         r_cards = {}
+        
         for record in session.stats['pull_history']:
-            if record['card']['rarity'] == 'R':
-                card_id = record['card']['card_id']
-                card_name = record['card']['name']
-                key = f"{card_id}_{card_name}"
-                r_cards[key] = r_cards.get(key, {'id': card_id, 'name': card_name, 'count': 0})
+            card = record['card']
+            card_id = card['card_id']
+            card_name = card['name']
+            rarity = card['rarity']
+            key = f"{card_id}"
+            
+            if rarity == 'SSR':
+                if key not in ssr_cards:
+                    ssr_cards[key] = {'id': card_id, 'name': card_name, 'count': 0}
+                ssr_cards[key]['count'] += 1
+            elif rarity == 'SR':
+                if key not in sr_cards:
+                    sr_cards[key] = {'id': card_id, 'name': card_name, 'count': 0}
+                sr_cards[key]['count'] += 1
+            else:
+                if key not in r_cards:
+                    r_cards[key] = {'id': card_id, 'name': card_name, 'count': 0}
                 r_cards[key]['count'] += 1
         
+        # SSR统计
+        lines.append(f"SSR 占 {stats['ssr_rate']}")
+        for key, info in ssr_cards.items():
+            rate = (info['count'] / stats['ssr_count'] * 100) if stats['ssr_count'] > 0 else 0
+            lines.append(f"  其中 {info['id']}, 数量 {info['count']}, 占比 {rate:.2f}%")
+        
+        lines.append("")
+        
+        # SR统计
+        lines.append(f"SR 占 {stats['sr_rate']}")
+        for key, info in sr_cards.items():
+            rate = (info['count'] / stats['sr_count'] * 100) if stats['sr_count'] > 0 else 0
+            lines.append(f"  其中 {info['id']}, 数量 {info['count']}, 占比 {rate:.2f}%")
+        
+        lines.append("")
+        
+        # R统计
+        lines.append(f"R 占 {stats['r_rate']}")
         for key, info in r_cards.items():
             rate = (info['count'] / stats['r_count'] * 100) if stats['r_count'] > 0 else 0
-            lines.append(f"  - {info['id']}: {info['name']}, 数量 {info['count']}, 占比 {rate:.2f}%")
+            lines.append(f"  其中 {info['id']}, 数量 {info['count']}, 占比 {rate:.2f}%")
+
+        lines.append("")
+
+        # 卡牌信息列表
+        lines.append("=== 卡牌信息列表 ===")
+        for i, record in enumerate(session.stats['pull_history']):
+            card = record['card']
+            # 格式: 序号. {{卡牌ID}} {{品级}} {{名字}}
+            line = f"{record['pull_number']}. {card['card_id']} {card['rarity']} {card['name']}"
+            lines.append(line)
+            # 每10行一个空行
+            if (i + 1) % 10 == 0:
+                lines.append("")
         
         return "\n".join(lines)
     

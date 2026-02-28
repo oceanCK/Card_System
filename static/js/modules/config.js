@@ -10,8 +10,8 @@ const MODE = {
 
 // ==================== 抽卡限制配置 ====================
 const PULL_LIMITS = {
-    LOCAL: 10000,    // 本地模式最多1万次
-    SERVER: 100000   // 服务端模式最多10万次（压测用）
+    LOCAL: 100000,    // 本地模式最多10万次
+    SERVER: 100000   // 服务端模式最多10万次
 };
 
 // ==================== 全局状态管理 ====================
@@ -57,6 +57,7 @@ const DOM = {
     closeModal: null,
     exportText: null,
     copyDataBtn: null,
+    downloadDataBtn: null,
     
     // 模式切换相关
     modeToggle: null,
@@ -64,6 +65,18 @@ const DOM = {
     modeServerBtn: null,
     refreshDataBtn: null,
     modeIndicator: null,
+    
+    // 进度条相关
+    progressContainer: null,
+    progressFill: null,
+    progressDetail: null,
+    progressPercent: null,
+
+    // 导出数据进度条
+    exportProgressContainer: null,
+    exportProgressFill: null,
+    exportProgressDetail: null,
+    exportProgressPercent: null,
 
     /**
      * 初始化DOM引用
@@ -95,11 +108,24 @@ const DOM = {
         this.closeModal = document.getElementById('closeModal');
         this.exportText = document.getElementById('exportText');
         this.copyDataBtn = document.getElementById('copyDataBtn');
+        this.downloadDataBtn = document.getElementById('downloadDataBtn');
         
         this.modeToggle = document.getElementById('modeToggle');
         this.modeLocalBtn = document.getElementById('modeLocalBtn');
         this.modeServerBtn = document.getElementById('modeServerBtn');
         this.refreshDataBtn = document.getElementById('refreshDataBtn');
         this.modeIndicator = document.getElementById('modeIndicator');
+        
+        // 进度条
+        this.progressContainer = document.getElementById('progressContainer');
+        this.progressFill = document.getElementById('progressFill');
+        this.progressDetail = document.getElementById('progressDetail');
+        this.progressPercent = document.getElementById('progressPercent');
+
+        // 导出数据进度条
+        this.exportProgressContainer = document.getElementById('exportProgressContainer');
+        this.exportProgressFill = document.getElementById('exportProgressFill');
+        this.exportProgressDetail = document.getElementById('exportProgressDetail');
+        this.exportProgressPercent = document.getElementById('exportProgressPercent');
     }
 };

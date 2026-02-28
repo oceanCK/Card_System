@@ -228,5 +228,112 @@ const UI = {
             DOM.modeIndicator.textContent = '⚠️ 服务端不可用';
             DOM.modeIndicator.className = 'mode-indicator unavailable';
         }
+    },
+
+    /**
+     * 显示进度条
+     */
+    showProgress() {
+        if (DOM.progressContainer) {
+            DOM.progressContainer.style.display = 'block';
+        }
+    },
+
+    /**
+     * 隐藏进度条
+     */
+    hideProgress() {
+        if (DOM.progressContainer) {
+            DOM.progressContainer.style.display = 'none';
+        }
+        // 重置进度条状态
+        if (DOM.progressFill) {
+            DOM.progressFill.style.width = '0%';
+        }
+    },
+
+    /**
+     * 更新进度条
+     * @param {number} current - 当前完成数量
+     * @param {number} total - 总数量
+     * @param {number} percent - 百分比
+     */
+    updateProgress(current, total, percent) {
+        if (DOM.progressFill) {
+            DOM.progressFill.style.width = `${percent}%`;
+        }
+        if (DOM.progressDetail) {
+            DOM.progressDetail.textContent = `${current.toLocaleString()} / ${total.toLocaleString()}`;
+        }
+        if (DOM.progressPercent) {
+            DOM.progressPercent.textContent = `${percent}%`;
+        }
+    },
+
+    // ==================== 导出数据弹窗（带进度条） ====================
+
+    /**
+     * 显示弹窗并展示进度条（数据生成中）
+     */
+    showModalWithProgress() {
+        DOM.exportText.value = '';
+        DOM.exportText.style.display = 'none';
+        DOM.copyDataBtn.style.display = 'none';
+        if (DOM.exportProgressContainer) {
+            DOM.exportProgressContainer.style.display = 'block';
+            DOM.exportProgressFill.style.width = '0%';
+            DOM.exportProgressDetail.textContent = '0 / 0';
+            DOM.exportProgressPercent.textContent = '0%';
+        }
+        DOM.exportModal.classList.add('show');
+    },
+
+    /**
+     * 更新导出数据生成进度
+     */
+    updateExportProgress(current, total, percent, stage) {
+        if (DOM.exportProgressFill) {
+            DOM.exportProgressFill.style.width = `${percent}%`;
+        }
+        if (DOM.exportProgressDetail) {
+            const stageText = stage ? `[${stage}] ` : '';
+            DOM.exportProgressDetail.textContent = `${stageText}${current.toLocaleString()} / ${total.toLocaleString()}`;
+        }
+        if (DOM.exportProgressPercent) {
+            DOM.exportProgressPercent.textContent = `${percent}%`;
+        }
+    },
+
+    /**
+     * 进度完成后显示预览数据（轻量文本）
+     */
+    showModalData(text) {
+        if (DOM.exportProgressContainer) {
+            DOM.exportProgressContainer.style.display = 'none';
+        }
+        DOM.exportText.style.display = '';
+        DOM.copyDataBtn.style.display = '';
+        DOM.exportText.value = text;
+    },
+
+    /**
+     * 显示下载按钮（有完整数据Blob时）
+     */
+    showDownloadButton(blob) {
+        if (DOM.downloadDataBtn && blob) {
+            DOM.downloadDataBtn.style.display = '';
+            // 存储blob引用供下载使用
+            DOM.downloadDataBtn._dataBlob = blob;
+        }
+    },
+
+    /**
+     * 隐藏下载按钮
+     */
+    hideDownloadButton() {
+        if (DOM.downloadDataBtn) {
+            DOM.downloadDataBtn.style.display = 'none';
+            DOM.downloadDataBtn._dataBlob = null;
+        }
     }
 };

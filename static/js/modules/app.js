@@ -134,13 +134,33 @@ async function init() {
     
     // 绑定导出相关事件
     DOM.exportDataBtn.addEventListener('click', EventHandlers.handleExport);
-    DOM.closeModal.addEventListener('click', UI.hideModal);
+    DOM.closeModal.addEventListener('click', () => {
+        UI.hideModal();
+        UI.hideDownloadButton();
+    });
     DOM.copyDataBtn.addEventListener('click', EventHandlers.handleCopyData);
+    
+    // 绑定下载完整数据按钮
+    if (DOM.downloadDataBtn) {
+        DOM.downloadDataBtn.addEventListener('click', () => {
+            const blob = DOM.downloadDataBtn._dataBlob;
+            if (!blob) return;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `抽卡数据_${new Date().toISOString().slice(0,10)}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
     
     // 点击弹窗外部关闭
     DOM.exportModal.addEventListener('click', (e) => {
         if (e.target === DOM.exportModal) {
             UI.hideModal();
+            UI.hideDownloadButton();
         }
     });
     

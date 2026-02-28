@@ -62,9 +62,44 @@ class LocalGachaService {
 
     /**
      * 保存会话到localStorage
+     * 注意：只保存最近5000条历史到localStorage（避免超出存储配额）
+     * 完整历史保留在内存中，供导出和统计使用
      */
     _saveSession() {
-        localStorage.setItem('localGachaSession', JSON.stringify(this.sessionData));
+        try {
+            const saveData = {
+                currentPoolId: this.sessionData.currentPoolId,
+                pityCounter: this.sessionData.pityCounter,
+                stats: {
+                    total_pulls: this.sessionData.stats.total_pulls,
+                    ssr_count: this.sessionData.stats.ssr_count,
+                    sr_count: this.sessionData.stats.sr_count,
+                    r_count: this.sessionData.stats.r_count,
+                    featured_ssr_counts: this.sessionData.stats.featured_ssr_counts,
+                    pull_history: this.sessionData.stats.pull_history.slice(-5000)
+                }
+            };
+            localStorage.setItem('localGachaSession', JSON.stringify(saveData));
+        } catch (e) {
+            console.warn('[LocalGacha] 保存会话失败，尝试精简数据:', e.message);
+            try {
+                const minData = {
+                    currentPoolId: this.sessionData.currentPoolId,
+                    pityCounter: this.sessionData.pityCounter,
+                    stats: {
+                        total_pulls: this.sessionData.stats.total_pulls,
+                        ssr_count: this.sessionData.stats.ssr_count,
+                        sr_count: this.sessionData.stats.sr_count,
+                        r_count: this.sessionData.stats.r_count,
+                        featured_ssr_counts: this.sessionData.stats.featured_ssr_counts,
+                        pull_history: this.sessionData.stats.pull_history.slice(-500)
+                    }
+                };
+                localStorage.setItem('localGachaSession', JSON.stringify(minData));
+            } catch (e2) {
+                console.error('[LocalGacha] 无法保存会话数据:', e2.message);
+            }
+        }
     }
 
     /**
@@ -290,11 +325,6 @@ class LocalGachaService {
         };
         this.sessionData.stats.pull_history.push(pullRecord);
 
-        // 限制历史记录数量（防止内存过大）
-        if (this.sessionData.stats.pull_history.length > 1000) {
-            this.sessionData.stats.pull_history = this.sessionData.stats.pull_history.slice(-500);
-        }
-
         this._saveSession();
 
         return {
@@ -304,7 +334,7 @@ class LocalGachaService {
     }
 
     /**
-     * 多次抽卡（优化版）
+     * 多次抽卡（同步版，用于少量抽卡）
      * @param {number} count - 抽卡次数
      * @param {number} returnLimit - 返回结果最大数量，默认100
      */
@@ -313,9 +343,8 @@ class LocalGachaService {
             return { success: false, message: '卡池数据未加载' };
         }
 
-        // 限制单次最大抽卡数
-        const maxCount = 10000;
-        count = Math.min(Math.max(1, count), maxCount);
+        // 确保最少抽1次
+        count = Math.max(1, count);
         
         const results = [];
         
@@ -330,6 +359,70 @@ class LocalGachaService {
                 if (i >= count - returnLimit) {
                     results.push(result);
                 }
+            }
+        } finally {
+            // 恢复保存函数并执行一次保存
+            this._saveSession = originalSaveSession;
+            this._saveSession();
+        }
+
+        return {
+            success: true,
+            results: results,
+            actual_count: count,
+            returned_count: results.length
+        };
+    }
+
+    /**
+     * 异步多次抽卡（用于大量抽卡，避免UI卡顿）
+     * @param {number} count - 抽卡次数
+     * @param {number} returnLimit - 返回结果最大数量，默认100
+     * @param {Function} onProgress - 进度回调函数 (current, total, percent)
+     * @param {number} batchSize - 每批处理数量，默认5000以优化性能
+     */
+    async pullMultiAsync(count = 10, returnLimit = 100, onProgress = null, batchSize = 5000) {
+        if (!this.dataLoaded) {
+            return { success: false, message: '卡池数据未加载' };
+        }
+
+        // 确保最少抽1次
+        count = Math.max(1, count);
+        
+        const results = [];
+        const startIndex = Math.max(0, count - returnLimit);
+        
+        // 禁用每次的localStorage保存，最后统一保存
+        const originalSaveSession = this._saveSession.bind(this);
+        this._saveSession = () => {};
+        
+        let processed = 0;
+        const totalBatches = Math.ceil(count / batchSize);
+        
+        try {
+            for (let batch = 0; batch < totalBatches; batch++) {
+                const batchStart = batch * batchSize;
+                const batchEnd = Math.min(batchStart + batchSize, count);
+                
+                // 执行当前批次
+                for (let i = batchStart; i < batchEnd; i++) {
+                    const result = this._pullSingleOptimized();
+                    // 只保留最近的结果用于返回
+                    if (i >= startIndex) {
+                        results.push(result);
+                    }
+                }
+                
+                processed = batchEnd;
+                
+                // 回调进度
+                if (onProgress) {
+                    const percent = Math.round((processed / count) * 100);
+                    onProgress(processed, count, percent);
+                }
+                
+                // 让出主线程，避免UI卡顿
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         } finally {
             // 恢复保存函数并执行一次保存
@@ -389,12 +482,6 @@ class LocalGachaService {
         };
         this.sessionData.stats.pull_history.push(pullRecord);
 
-        // 限制历史记录数量
-        const MAX_HISTORY = 1000;
-        if (this.sessionData.stats.pull_history.length > MAX_HISTORY) {
-            this.sessionData.stats.pull_history = this.sessionData.stats.pull_history.slice(-MAX_HISTORY);
-        }
-
         return pullRecord;
     }
 
@@ -450,36 +537,221 @@ class LocalGachaService {
     }
 
     /**
-     * 获取导出数据
+     * 获取导出数据（同步版，用于少量数据）
      */
     getExportData() {
+        const history = this.sessionData.stats.pull_history;
+        if (history.length > 5000) {
+            // 数据量大时建议使用异步版本
+            console.warn('[LocalGacha] 历史记录较多，建议使用 getExportDataAsync');
+        }
+        return this._generateExportData(history);
+    }
+
+    /**
+     * 异步获取导出数据（用于大量数据，带进度回调，不卡UI）
+     * 返回: { success, summary, fullBlob }
+     *   - summary: 摘要文本（统计 + 最近500条），用于预览
+     *   - fullBlob: 完整数据的 Blob 对象，用于下载
+     * @param {Function} onProgress - 进度回调 (current, total, percent, stage)
+     */
+    async getExportDataAsync(onProgress = null) {
         const pool = this.getCurrentPool();
         const stats = this.getStatistics().stats;
         const history = this.sessionData.stats.pull_history;
+        const total = history.length;
 
-        let text = `===== 抽卡统计报告 =====\n`;
-        text += `卡池: ${pool ? pool.name : '未选择'}\n`;
-        text += `模式: 本地模式\n`;
-        text += `总抽数: ${stats.total_pulls}\n`;
-        text += `SSR: ${stats.ssr_count} (${stats.ssr_rate})\n`;
-        text += `SR: ${stats.sr_count} (${stats.sr_rate})\n`;
-        text += `R: ${stats.r_count} (${stats.r_rate})\n`;
-        text += `当前保底计数: ${stats.pity_counter}\n\n`;
-
-        text += `===== 特定SSR获取 =====\n`;
-        for (const [id, count] of Object.entries(stats.featured_ssr_counts)) {
-            text += `${id}: ${count}张\n`;
+        if (total === 0) {
+            return { success: true, summary: '暂无抽卡记录', fullBlob: null };
         }
 
-        text += `\n===== 最近50次抽卡 =====\n`;
-        const recentHistory = history.slice(-50).reverse();
-        recentHistory.forEach(record => {
-            text += `#${record.pull_number} [${record.card.rarity}] ${record.card.name}\n`;
+        // ===== 阶段1: 统计各品级（快速遍历，不生成文本） =====
+        if (onProgress) onProgress(0, total, 0, '统计中');
+
+        const ssrCards = {};
+        const srCards = {};
+        const rCards = {};
+
+        const statBatchSize = 5000;
+        for (let i = 0; i < total; i++) {
+            const card = history[i].card;
+            const cardId = card.card_id;
+            const cardName = card.name;
+            if (card.rarity === 'SSR') {
+                if (!ssrCards[cardId]) ssrCards[cardId] = { id: cardId, name: cardName, count: 0 };
+                ssrCards[cardId].count++;
+            } else if (card.rarity === 'SR') {
+                if (!srCards[cardId]) srCards[cardId] = { id: cardId, name: cardName, count: 0 };
+                srCards[cardId].count++;
+            } else {
+                if (!rCards[cardId]) rCards[cardId] = { id: cardId, name: cardName, count: 0 };
+                rCards[cardId].count++;
+            }
+            if ((i + 1) % statBatchSize === 0) {
+                if (onProgress) {
+                    const percent = Math.round(((i + 1) / total) * 30);  // 阶段1占30%
+                    onProgress(i + 1, total, percent, '统计中');
+                }
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+
+        // 生成品级占比文本
+        const statsLines = [];
+        if (pool && pool.library_id) {
+            statsLines.push(`卡库ID: ${pool.library_id}`);
+            statsLines.push('');
+        }
+        statsLines.push(`总抽数: ${stats.total_pulls}`);
+        statsLines.push('');
+        statsLines.push('=== 品级占比 ===');
+        statsLines.push(`SSR 占 ${stats.ssr_rate} (${stats.ssr_count}张)`);
+        for (const info of Object.values(ssrCards)) {
+            const rate = stats.ssr_count > 0 ? (info.count / stats.ssr_count * 100).toFixed(2) : 0;
+            statsLines.push(`  其中 ${info.id}, 数量 ${info.count}, 占比 ${rate}%`);
+        }
+        statsLines.push('');
+        statsLines.push(`SR 占 ${stats.sr_rate} (${stats.sr_count}张)`);
+        for (const info of Object.values(srCards)) {
+            const rate = stats.sr_count > 0 ? (info.count / stats.sr_count * 100).toFixed(2) : 0;
+            statsLines.push(`  其中 ${info.id}, 数量 ${info.count}, 占比 ${rate}%`);
+        }
+        statsLines.push('');
+        statsLines.push(`R 占 ${stats.r_rate} (${stats.r_count}张)`);
+        for (const info of Object.values(rCards)) {
+            const rate = stats.r_count > 0 ? (info.count / stats.r_count * 100).toFixed(2) : 0;
+            statsLines.push(`  其中 ${info.id}, 数量 ${info.count}, 占比 ${rate}%`);
+        }
+        const statsText = statsLines.join('\n');
+
+        // ===== 生成预览摘要（统计 + 最近500条） =====
+        const previewLines = [...statsLines, '', '=== 最近500条记录 ==='];
+        const previewRecords = history.slice(-500);
+        previewRecords.forEach((record, i) => {
+            const card = record.card;
+            previewLines.push(`${record.pull_number}. ${card.card_id} ${card.rarity} ${card.name}`);
+            if ((i + 1) % 10 === 0) previewLines.push('');
         });
+        if (total > 500) {
+            previewLines.push('');
+            previewLines.push(`... 仅显示最近500条，完整 ${total} 条记录请点击"下载完整数据"`);
+        }
+        const summary = previewLines.join('\n');
+
+        if (onProgress) onProgress(total, total, 35, '生成完整数据');
+        await new Promise(r => setTimeout(r, 0));
+
+        // ===== 阶段2: 分批生成完整文本用于下载（Blob分块写入） =====
+        const textChunks = [];
+        textChunks.push(statsText + '\n\n=== 卡牌信息列表 ===\n');
+
+        const genBatchSize = 3000;
+        const totalGenBatches = Math.ceil(total / genBatchSize);
+
+        for (let batch = 0; batch < totalGenBatches; batch++) {
+            const start = batch * genBatchSize;
+            const end = Math.min(start + genBatchSize, total);
+            let chunk = '';
+
+            for (let i = start; i < end; i++) {
+                const record = history[i];
+                const card = record.card;
+                chunk += `${record.pull_number}. ${card.card_id} ${card.rarity} ${card.name}\n`;
+                if ((i + 1) % 10 === 0) chunk += '\n';
+            }
+
+            textChunks.push(chunk);
+
+            if (onProgress) {
+                const percent = 35 + Math.round((end / total) * 65);  // 阶段2占65%
+                onProgress(end, total, percent, '生成完整数据');
+            }
+            await new Promise(r => setTimeout(r, 0));
+        }
+
+        // 用Blob避免在内存中拼接完整大字符串
+        const fullBlob = new Blob(textChunks, { type: 'text/plain;charset=utf-8' });
+
+        if (onProgress) onProgress(total, total, 100, '完成');
 
         return {
             success: true,
-            data: text
+            summary: summary,
+            fullBlob: fullBlob
+        };
+    }
+
+    /**
+     * 内部方法：生成导出数据（同步）
+     */
+    _generateExportData(history) {
+        const pool = this.getCurrentPool();
+        const stats = this.getStatistics().stats;
+
+        let lines = [];
+        
+        // 卡库ID
+        if (pool && pool.library_id) {
+            lines.push(`卡库ID: ${pool.library_id}`);
+            lines.push('');
+        }
+        
+        // 卡牌信息列表
+        lines.push('=== 卡牌信息列表 ===');
+        history.forEach((record, i) => {
+            const card = record.card;
+            lines.push(`${record.pull_number}. ${card.card_id} ${card.rarity} ${card.name}`);
+            if ((i + 1) % 10 === 0) {
+                lines.push('');
+            }
+        });
+        
+        lines.push('');
+        lines.push('=== 品级占比 ===');
+        
+        const ssrCards = {};
+        const srCards = {};
+        const rCards = {};
+        
+        history.forEach(record => {
+            const card = record.card;
+            const cardId = card.card_id;
+            const cardName = card.name;
+            const rarity = card.rarity;
+            
+            if (rarity === 'SSR') {
+                if (!ssrCards[cardId]) ssrCards[cardId] = { id: cardId, name: cardName, count: 0 };
+                ssrCards[cardId].count++;
+            } else if (rarity === 'SR') {
+                if (!srCards[cardId]) srCards[cardId] = { id: cardId, name: cardName, count: 0 };
+                srCards[cardId].count++;
+            } else {
+                if (!rCards[cardId]) rCards[cardId] = { id: cardId, name: cardName, count: 0 };
+                rCards[cardId].count++;
+            }
+        });
+        
+        lines.push(`SSR 占 ${stats.ssr_rate}`);
+        for (const [key, info] of Object.entries(ssrCards)) {
+            const rate = stats.ssr_count > 0 ? (info.count / stats.ssr_count * 100).toFixed(2) : 0;
+            lines.push(`  其中 ${info.id}, 数量 ${info.count}, 占比 ${rate}%`);
+        }
+        lines.push('');
+        lines.push(`SR 占 ${stats.sr_rate}`);
+        for (const [key, info] of Object.entries(srCards)) {
+            const rate = stats.sr_count > 0 ? (info.count / stats.sr_count * 100).toFixed(2) : 0;
+            lines.push(`  其中 ${info.id}, 数量 ${info.count}, 占比 ${rate}%`);
+        }
+        lines.push('');
+        lines.push(`R 占 ${stats.r_rate}`);
+        for (const [key, info] of Object.entries(rCards)) {
+            const rate = stats.r_count > 0 ? (info.count / stats.r_count * 100).toFixed(2) : 0;
+            lines.push(`  其中 ${info.id}, 数量 ${info.count}, 占比 ${rate}%`);
+        }
+
+        return {
+            success: true,
+            data: lines.join('\n')
         };
     }
 

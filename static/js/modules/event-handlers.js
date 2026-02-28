@@ -120,7 +120,7 @@ const EventHandlers = {
         if (AppState.isLoading) return;
         
         const count = parseInt(DOM.customCount.value) || 10;
-        // 根据模式决定最大抽卡次数：本地1万，服务端10万
+        // 根据模式决定最大抽卡次数
         const maxAllowed = AppState.mode === MODE.LOCAL ? PULL_LIMITS.LOCAL : PULL_LIMITS.SERVER;
         if (count < 1 || count > maxAllowed) {
             alert(`请输入1-${maxAllowed}之间的数字`);
@@ -128,16 +128,43 @@ const EventHandlers = {
         }
         
         UI.setLoading(true);
+        
+        // 大量抽卡时使用异步方法并显示进度条（本地和服务端通用）
+        const ASYNC_THRESHOLD = 500;
+        const useAsync = count >= ASYNC_THRESHOLD;
+        
         try {
-            const result = await GachaEngine.pullMulti(count);
+            let result;
+            
+            if (useAsync) {
+                // 显示进度条
+                UI.showProgress();
+                UI.updateProgress(0, count, 0);
+                
+                // 使用异步分批抽卡（本地/服务端均支持）
+                result = await GachaEngine.pullMultiAsync(count, (current, total, percent) => {
+                    UI.updateProgress(current, total, percent);
+                });
+                
+                // 隐藏进度条
+                UI.hideProgress();
+            } else {
+                // 小量抽卡使用同步方法
+                result = await GachaEngine.pullMulti(count);
+            }
+            
             if (result.success) {
                 // 显示本次抽卡结果
                 UI.showCards(result.results);
                 
-                // 获取统计
-                const statsResult = await GachaEngine.getStats();
-                if (statsResult.success) {
-                    UI.updateStats(statsResult.stats);
+                // 服务端 pullMulti 已返回 stats，直接使用；本地模式则单独获取
+                if (result.stats) {
+                    UI.updateStats(result.stats);
+                } else {
+                    const statsResult = await GachaEngine.getStats();
+                    if (statsResult.success) {
+                        UI.updateStats(statsResult.stats);
+                    }
                 }
                 
                 // 获取完整历史记录
@@ -152,6 +179,7 @@ const EventHandlers = {
         } catch (error) {
             console.error('抽卡失败:', error);
             alert('抽卡请求失败，请检查网络连接');
+            UI.hideProgress();
         } finally {
             UI.setLoading(false);
         }
@@ -174,16 +202,32 @@ const EventHandlers = {
     },
     
     /**
-     * 导出数据
+     * 导出数据（异步加载+进度条+下载，本地/服务端统一）
      */
     async handleExport() {
         try {
-            const result = await GachaEngine.getExportData();
+            // 先显示弹窗和进度条
+            UI.showModalWithProgress();
+            UI.hideDownloadButton();
+
+            const result = await GachaEngine.getExportDataAsync((current, total, percent, stage) => {
+                UI.updateExportProgress(current, total, percent, stage);
+            });
+
             if (result.success) {
-                UI.showModal(result.data);
+                // 只将轻量摘要放入textarea，不卡顿
+                UI.showModalData(result.summary);
+                // 如果有完整数据Blob，显示下载按钮
+                if (result.fullBlob) {
+                    UI.showDownloadButton(result.fullBlob);
+                }
+            } else {
+                UI.hideModal();
+                alert(result.message || '导出失败');
             }
         } catch (error) {
             console.error('导出失败:', error);
+            UI.hideModal();
         }
     },
     

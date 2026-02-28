@@ -49,9 +49,9 @@ PITY_CONFIG = {
 
 # 抽卡限制配置
 PULL_LIMITS = {
-    'max_single_pull_local': 10000,    # 本地模式单次最大抽卡数
-    'max_single_pull_server': 100000,  # 服务端模式单次最大抽卡数（压测用）
-    'max_history_size': 1000,          # 历史记录最大存储数量
+    'max_single_pull_local': 100000,    # 本地模式单次最大抽卡数
+    'max_single_pull_server': 100000,  # 服务端模式单次最大抽卡数
+    'max_history_size': 50000,          # 历史记录最大存储数量
     'max_return_results': 100          # API返回结果最大数量
 }
 

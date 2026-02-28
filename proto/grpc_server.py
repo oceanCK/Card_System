@@ -105,7 +105,7 @@ class GachaServicer(gacha_pb2_grpc.GachaServiceServicer):
             if request.pool_id:
                 gacha_service.set_current_pool(request.pool_id)
             
-            count = max(1, min(request.count or 10, 1000))
+            count = max(1, min(request.count or 10, 100000))
             
             results = gacha_service.pull_multi(count)
             stats = gacha_service.get_statistics()
