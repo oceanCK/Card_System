@@ -5,13 +5,12 @@
 // ==================== 模式常量 ====================
 const MODE = {
     LOCAL: 'local',
-    SERVER: 'server'
+    GAME_SERVER: 'game_server'
 };
 
 // ==================== 抽卡限制配置 ====================
 const PULL_LIMITS = {
-    LOCAL: 100000,    // 本地模式最多10万次
-    SERVER: 100000   // 服务端模式最多10万次
+    LOCAL: 100000    // 本地模式最多10万次
 };
 
 // ==================== 全局状态管理 ====================
@@ -19,9 +18,15 @@ const AppState = {
     currentPoolId: null,
     isLoading: false,
     lastResults: [],
-    mode: localStorage.getItem('gachaMode') || MODE.LOCAL,
+    mode: (() => {
+        const saved = localStorage.getItem('gachaMode');
+        // 兼容旧版 server 模式，自动回退到本地
+        if (saved === 'server') return MODE.LOCAL;
+        return saved || MODE.LOCAL;
+    })(),
     localServiceReady: false,
-    serverAvailable: false
+    // 游戏服务器连接状态
+    gameServerConnected: false
 };
 
 // ==================== DOM 元素引用 ====================
@@ -62,7 +67,6 @@ const DOM = {
     // 模式切换相关
     modeToggle: null,
     modeLocalBtn: null,
-    modeServerBtn: null,
     refreshDataBtn: null,
     modeIndicator: null,
     
@@ -112,10 +116,12 @@ const DOM = {
         
         this.modeToggle = document.getElementById('modeToggle');
         this.modeLocalBtn = document.getElementById('modeLocalBtn');
-        this.modeServerBtn = document.getElementById('modeServerBtn');
         this.refreshDataBtn = document.getElementById('refreshDataBtn');
         this.modeIndicator = document.getElementById('modeIndicator');
         
+        // 游戏服务器模式
+        this.modeGameBtn = document.getElementById('modeGameBtn');
+
         // 进度条
         this.progressContainer = document.getElementById('progressContainer');
         this.progressFill = document.getElementById('progressFill');

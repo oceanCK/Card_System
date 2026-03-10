@@ -38,13 +38,15 @@ const API = {
         }
     },
     
-    // API端点方法
-    setPool: (poolId, autoReset = true) => API.post(`/api/pools/${poolId}`, { auto_reset: autoReset }),
-    pullSingle: () => API.post('/api/pull/single'),
-    pullMulti: (count) => API.post('/api/pull/multi', { count }),
-    getStats: () => API.get('/api/stats'),
-    getHistory: (limit = 50) => API.get(`/api/history?limit=${limit}`),
-    getExportData: () => API.get('/api/export'),
-    reset: () => API.post('/api/reset'),
-    checkServerStatus: () => API.get('/api/server-status')
+    // 游戏服务器桥接API
+    gameAutoConnect: () => API.post('/api/game/auto-connect'),
+    gameDisconnect: () => API.post('/api/game/disconnect'),
+    gameStatus: () => API.get('/api/game/status'),
+    gameGetPools: () => API.get('/api/game/pools'),
+    gamePullSingle: (pool_id) => API.post('/api/game/pull/single', { pool_id }),
+    gamePullMulti: (pool_id) => API.post('/api/game/pull/multi', { pool_id }),
+    gameReadPoolNew: (poolId) => API.post(`/api/game/pools/${poolId}/read`),
+    gamePing: () => API.get('/api/game/ping'),
+    gameGetRole: () => API.get('/api/game/role'),
+    gameEcho: (message) => API.post('/api/game/echo', { message })
 };

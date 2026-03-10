@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import SERVER_CONFIG
-from routes import gacha_bp
+from routes import gacha_bp, game_bp
 
 # 尝试导入 protobuf 路由
 try:
@@ -46,6 +46,8 @@ def create_app():
     
     # 注册蓝图
     app.register_blueprint(gacha_bp)
+    app.register_blueprint(game_bp)
+    print("  Game server bridge routes enabled at /api/game/*")
     
     # 注册 Protobuf 蓝图 (如果可用)
     if PROTO_AVAILABLE:

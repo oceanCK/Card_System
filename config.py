@@ -67,3 +67,12 @@ SERVER_CONFIG = {
     'debug': ENV == 'development',
     'workers': int(os.environ.get('WORKERS', 4)),  # 生产环境 worker 数量
 }
+
+# 游戏服务器连接配置（后台管理，不暴露给前端）
+GAME_SERVER_CONFIG = {
+    'host': os.environ.get('GAME_HOST', '10.20.200.20'),
+    'port': int(os.environ.get('GAME_PORT', 40500)),
+    'timeout': int(os.environ.get('GAME_TIMEOUT', 10)),
+    'username': os.environ.get('GAME_USER', 'test'),
+    'password': os.environ.get('GAME_PASS', '1234'),
+}

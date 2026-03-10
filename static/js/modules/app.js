@@ -22,15 +22,39 @@ async function initGachaEngine() {
         // 确保本地模式下抽卡按钮可用
         UI.enablePullButtons();
     } else {
-        // 服务端模式：检测接口可用性
-        console.log('[Init] 正在初始化服务端模式...');
-        const checkResult = await GachaEngine.checkServerAvailable();
+        // 游戏服务器模式：自动连接+登录
+        console.log('[Init] 正在初始化游戏服务器模式...');
+        
+        // 先检查是否已连接
+        const checkResult = await GachaEngine.checkGameServerAvailable();
         
         if (!checkResult.available) {
-            console.warn('[Init] 服务端接口不可用:', checkResult.message);
-            // 显示服务端不可用的提示界面
-            UI.showServerUnavailable(checkResult.message);
-            return false;
+            // 未连接，自动连接
+            console.log('[Init] 正在自动连接游戏服务器...');
+            const connectResult = await GachaEngine.autoConnectGameServer();
+            
+            if (!connectResult.success) {
+                console.warn('[Init] 游戏服务器连接失败:', connectResult.message);
+                UI.showServerUnavailable(connectResult.message);
+                return false;
+            }
+        }
+        
+        AppState.gameServerConnected = true;
+        UI.updateModeUI();
+        
+        // 连接成功, 延迟获取卡池（等服务器回调）
+        await new Promise(r => setTimeout(r, 1500));
+        
+        try {
+            const poolsResult = await GachaEngine.getGameServerPools();
+            if (poolsResult.success && poolsResult.pools) {
+                UI.showGameServerPools(poolsResult.pools);
+                UI.enablePullButtons();
+                DOM.poolDesc.textContent = '已连接到游戏服务器, 可以开始抽卡';
+            }
+        } catch (e) {
+            console.warn('[Init] 获取游戏卡池失败:', e);
         }
     }
     
@@ -114,8 +138,8 @@ async function init() {
     if (DOM.modeLocalBtn) {
         DOM.modeLocalBtn.addEventListener('click', () => EventHandlers.handleModeSwitch(MODE.LOCAL));
     }
-    if (DOM.modeServerBtn) {
-        DOM.modeServerBtn.addEventListener('click', () => EventHandlers.handleModeSwitch(MODE.SERVER));
+    if (DOM.modeGameBtn) {
+        DOM.modeGameBtn.addEventListener('click', () => EventHandlers.handleModeSwitch(MODE.GAME_SERVER));
     }
     if (DOM.refreshDataBtn) {
         DOM.refreshDataBtn.addEventListener('click', EventHandlers.handleRefreshData);
@@ -174,7 +198,7 @@ async function init() {
     // 初始化抽卡引擎
     await initGachaEngine();
     
-    console.log(`抽卡概率工具已初始化 [${AppState.mode === MODE.LOCAL ? '本地模式' : '服务端模式'}]`);
+    console.log(`抽卡概率工具已初始化 [${AppState.mode === MODE.LOCAL ? '本地模式' : '游戏服务器模式'}]`);
 }
 
 // 页面加载完成后初始化

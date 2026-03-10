@@ -121,7 +121,7 @@ const EventHandlers = {
         
         const count = parseInt(DOM.customCount.value) || 10;
         // 根据模式决定最大抽卡次数
-        const maxAllowed = AppState.mode === MODE.LOCAL ? PULL_LIMITS.LOCAL : PULL_LIMITS.SERVER;
+        const maxAllowed = PULL_LIMITS.LOCAL;
         if (count < 1 || count > maxAllowed) {
             alert(`请输入1-${maxAllowed}之间的数字`);
             return;
@@ -252,20 +252,6 @@ const EventHandlers = {
     async handleModeSwitch(mode) {
         if (mode === AppState.mode) return;
         
-        // 切换到服务端模式时先检测可用性
-        if (mode === MODE.SERVER) {
-            UI.setLoading(true);
-            const checkResult = await GachaEngine.checkServerAvailable();
-            UI.setLoading(false);
-            
-            if (!checkResult.available) {
-                // 服务端不可用，显示提示但仍允许切换（显示无数据状态）
-                if (!confirm(`${checkResult.message}\n\n服务端接口尚未对接，切换后将显示无数据状态。\n是否仍要切换？`)) {
-                    return;
-                }
-            }
-        }
-        
         // 切换模式
         AppState.mode = mode;
         localStorage.setItem('gachaMode', mode);
@@ -285,7 +271,7 @@ const EventHandlers = {
      */
     async handleRefreshData() {
         if (!GachaEngine.isLocalMode()) {
-            alert('服务端模式无需手动刷新数据');
+            alert('服务器模式无需手动刷新数据');
             return;
         }
 

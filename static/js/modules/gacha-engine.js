@@ -11,42 +11,23 @@ const GachaEngine = {
     },
 
     /**
+     * 判断当前是否为游戏服务器模式
+     */
+    isGameServerMode() {
+        return AppState.mode === MODE.GAME_SERVER;
+    },
+
+    /**
      * 检测服务端接口是否可用
      * @returns {Promise<{available: boolean, message: string}>}
      */
     async checkServerAvailable() {
-        try {
-            const response = await fetch('/api/server-status', {
-                method: 'GET',
-                credentials: 'same-origin',
-                signal: AbortSignal.timeout(3000)
-            });
-            
-            if (!response.ok) {
-                return { available: false, message: `服务端响应异常 (${response.status})` };
-            }
-            
-            const data = await response.json();
-            
-            if (data.success && data.available) {
-                AppState.serverAvailable = true;
-                return { available: true, message: '服务端连接正常' };
-            } else {
-                AppState.serverAvailable = false;
-                return { 
-                    available: false, 
-                    message: data.message || '服务端接口不可用' 
-                };
-            }
-        } catch (error) {
-            console.warn('[Server] 服务端检测失败:', error.message);
-            AppState.serverAvailable = false;
-            
-            if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-                return { available: false, message: '服务端连接超时' };
-            }
-            return { available: false, message: '服务端接口不可用' };
+        // 游戏服务器模式使用独立的状态检查
+        if (this.isGameServerMode()) {
+            return this.checkGameServerAvailable();
         }
+        // 本地模式始终可用
+        return { available: true, message: '本地模式' };
     },
 
     /**
@@ -55,7 +36,7 @@ const GachaEngine = {
     _serverUnavailableResponse(action = '操作') {
         return {
             success: false,
-            message: `服务端接口不可用，无法${action}。\n请切换到本地模式`
+            message: `游戏服务器未连接，无法${action}。\n请先连接游戏服务器并登录`
         };
     },
 
@@ -66,10 +47,9 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.setCurrentPool(poolId, autoReset);
         } else {
-            if (!AppState.serverAvailable) {
-                return this._serverUnavailableResponse('设置卡池');
-            }
-            return await API.setPool(poolId, autoReset);
+            // 游戏服务器模式不支持切换卡池，卡池由服务器管理
+            AppState.currentPoolId = poolId;
+            return { success: true, pool: { description: `游戏服务器卡池 #${poolId}` } };
         }
     },
 
@@ -80,10 +60,10 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.pullSingle();
         } else {
-            if (!AppState.serverAvailable) {
+            if (!AppState.gameServerConnected) {
                 return this._serverUnavailableResponse('抽卡');
             }
-            return await API.pullSingle();
+            return await this._gameServerPullSingle();
         }
     },
 
@@ -94,10 +74,10 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.pullMulti(count);
         } else {
-            if (!AppState.serverAvailable) {
+            if (!AppState.gameServerConnected) {
                 return this._serverUnavailableResponse('抽卡');
             }
-            return await API.pullMulti(count);
+            return await this._gameServerPullMulti();
         }
     },
 
@@ -121,52 +101,12 @@ const GachaEngine = {
             }
             return await localGachaService.pullMultiAsync(count, 100, onProgress, batchSize);
         } else {
-            if (!AppState.serverAvailable) {
+            if (!AppState.gameServerConnected) {
                 return this._serverUnavailableResponse('抽卡');
             }
-            // 服务端模式：分批发送请求，防止超时 + 显示进度
-            return await this._serverPullMultiAsync(count, onProgress);
+            // 游戏服务器模式直接调用十连抽
+            return await this._gameServerPullMulti();
         }
-    },
-
-    /**
-     * 服务端分批抽卡（内部方法）
-     * 将大量抽卡拆分为多个小请求，逐批发送并汇总
-     */
-    async _serverPullMultiAsync(totalCount, onProgress = null) {
-        const SERVER_BATCH_SIZE = 5000;  // 每批最多5000次，避免服务端单请求过久
-        const batches = Math.ceil(totalCount / SERVER_BATCH_SIZE);
-        let allResults = [];
-        let processed = 0;
-        let lastStats = null;
-
-        for (let i = 0; i < batches; i++) {
-            const remaining = totalCount - processed;
-            const batchCount = Math.min(remaining, SERVER_BATCH_SIZE);
-
-            const result = await API.pullMulti(batchCount);
-            if (!result.success) {
-                return result;  // 某批失败则停止
-            }
-
-            // 只保留最后一批的结果用于展示
-            allResults = result.results || [];
-            lastStats = result.stats;
-            processed += batchCount;
-
-            if (onProgress) {
-                const percent = Math.round((processed / totalCount) * 100);
-                onProgress(processed, totalCount, percent);
-            }
-        }
-
-        return {
-            success: true,
-            results: allResults,
-            stats: lastStats,
-            actual_count: totalCount,
-            returned_count: allResults.length
-        };
     },
 
     /**
@@ -176,10 +116,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.getStatistics();
         } else {
-            if (!AppState.serverAvailable) {
-                return this._serverUnavailableResponse('获取统计');
-            }
-            return await API.getStats();
+            return { success: true, stats: this._gameServerEmptyStats() };
         }
     },
 
@@ -190,10 +127,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.getHistory(limit);
         } else {
-            if (!AppState.serverAvailable) {
-                return this._serverUnavailableResponse('获取历史');
-            }
-            return await API.getHistory(limit);
+            return { success: true, history: [] };
         }
     },
 
@@ -204,10 +138,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.getExportData();
         } else {
-            if (!AppState.serverAvailable) {
-                return this._serverUnavailableResponse('导出数据');
-            }
-            return await API.getExportData();
+            return { success: false, message: '游戏服务器模式暂不支持导出数据' };
         }
     },
 
@@ -221,42 +152,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return await localGachaService.getExportDataAsync(onProgress);
         } else {
-            if (!AppState.serverAvailable) {
-                return this._serverUnavailableResponse('导出数据');
-            }
-            // 显示请求中
-            if (onProgress) onProgress(0, 1, 10, '请求服务端数据');
-            
-            const result = await API.getExportData();
-            
-            if (onProgress) onProgress(1, 1, 80, '处理数据');
-            
-            if (result.success && result.data) {
-                const fullText = result.data;
-                // 生成Blob用于下载（避免大文本直接塞textarea卡顿）
-                const fullBlob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
-                
-                // 生成摘要预览：取前200行 + 后100行
-                const lines = fullText.split('\n');
-                let summary;
-                if (lines.length > 500) {
-                    const head = lines.slice(0, 200).join('\n');
-                    const tail = lines.slice(-100).join('\n');
-                    summary = head + '\n\n... 省略中间内容，完整数据请点击"下载完整数据" ...\n\n' + tail;
-                } else {
-                    summary = fullText;
-                }
-                
-                if (onProgress) onProgress(1, 1, 100, '完成');
-                
-                return { success: true, summary: summary, fullBlob: fullBlob };
-            }
-            
-            // 兼容无数据的情况
-            if (result.success) {
-                return { success: true, summary: result.data || '暂无数据', fullBlob: null };
-            }
-            return result;
+            return { success: false, message: '游戏服务器模式暂不支持导出数据' };
         }
     },
 
@@ -267,10 +163,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.reset();
         } else {
-            if (!AppState.serverAvailable) {
-                return this._serverUnavailableResponse('重置');
-            }
-            return await API.reset();
+            return { success: true, message: '游戏服务器模式无本地数据需要重置' };
         }
     },
 
@@ -281,7 +174,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return await localGachaService.refreshData();
         }
-        return { success: false, message: '服务端模式无需手动刷新' };
+        return { success: false, message: '游戏服务器模式无需手动刷新' };
     },
 
     /**
@@ -302,5 +195,142 @@ const GachaEngine = {
             return localGachaService.getCurrentPool();
         }
         return null;
+    },
+
+    // ==================== 游戏服务器模式专用方法 ====================
+
+    /**
+     * 检测游戏服务器连接状态
+     */
+    async checkGameServerAvailable() {
+        try {
+            const result = await API.gameStatus();
+            AppState.gameServerConnected = result.connected || false;
+            if (result.connected) {
+                return { available: true, message: '游戏服务器已连接' };
+            } else {
+                return { available: false, message: '游戏服务器未连接' };
+            }
+        } catch (e) {
+            AppState.gameServerConnected = false;
+            return { available: false, message: '无法检测游戏服务器状态' };
+        }
+    },
+
+    /**
+     * 一键连接+登录游戏服务器（使用后台配置）
+     */
+    async autoConnectGameServer() {
+        try {
+            const result = await API.gameAutoConnect();
+            AppState.gameServerConnected = result.success && result.connected;
+            return result;
+        } catch (e) {
+            AppState.gameServerConnected = false;
+            return { success: false, message: '连接失败: ' + e.message };
+        }
+    },
+
+    /**
+     * 断开游戏服务器
+     */
+    async disconnectGameServer() {
+        try {
+            const result = await API.gameDisconnect();
+            AppState.gameServerConnected = false;
+            return result;
+        } catch (e) {
+            return { success: false, message: '断开失败: ' + e.message };
+        }
+    },
+
+    /**
+     * 游戏服务器获取卡池列表
+     */
+    async getGameServerPools() {
+        try {
+            const result = await API.gameGetPools();
+            return result;
+        } catch (e) {
+            return { success: false, message: '获取卡池失败: ' + e.message };
+        }
+    },
+
+    /**
+     * 游戏服务器单抽 - 转换为platform格式
+     */
+    async _gameServerPullSingle() {
+        const poolId = AppState.currentPoolId || 1;
+        try {
+            const result = await API.gamePullSingle(parseInt(poolId));
+            if (!result.success) {
+                return { success: false, message: `抽卡失败 (错误码: ${result.error_code})` };
+            }
+            // 转换为平台标准格式
+            const cards = (result.cards || []).map(c => ({
+                card: {
+                    card_id: String(c.cardId),
+                    name: `卡牌#${c.cardId}`,
+                    rarity: 'SSR',  // 游戏服务器暂无rarity字段, 默认显示
+                    is_featured: c.isNew || false,
+                    image_url: ''
+                },
+                pity_count: 0
+            }));
+            return {
+                success: true,
+                result: cards[0] || { card: { card_id: '0', name: '未知', rarity: 'R' } },
+                results: cards,
+                stats: this._gameServerEmptyStats()
+            };
+        } catch (e) {
+            return { success: false, message: '单抽请求失败: ' + e.message };
+        }
+    },
+
+    /**
+     * 游戏服务器十连抽 - 转换为platform格式
+     */
+    async _gameServerPullMulti() {
+        const poolId = AppState.currentPoolId || 1;
+        try {
+            const result = await API.gamePullMulti(parseInt(poolId));
+            if (!result.success) {
+                return { success: false, message: `抽卡失败 (错误码: ${result.error_code})` };
+            }
+            const cards = (result.cards || []).map(c => ({
+                card: {
+                    card_id: String(c.cardId),
+                    name: `卡牌#${c.cardId}`,
+                    rarity: 'SSR',
+                    is_featured: c.isNew || false,
+                    image_url: ''
+                },
+                pity_count: 0
+            }));
+            return {
+                success: true,
+                results: cards,
+                stats: this._gameServerEmptyStats()
+            };
+        } catch (e) {
+            return { success: false, message: '十连抽请求失败: ' + e.message };
+        }
+    },
+
+    /**
+     * 游戏服务器模式的空统计数据(服务器不返回统计, 前端不积累)
+     */
+    _gameServerEmptyStats() {
+        return {
+            total_pulls: 0,
+            ssr_count: 0,
+            sr_count: 0,
+            r_count: 0,
+            ssr_rate: '0.00%',
+            sr_rate: '0.00%',
+            r_rate: '0.00%',
+            featured_ssr_counts: {}
+        };
     }
 };

@@ -132,28 +132,31 @@ body {
 
 /* 模式切换 */
 .mode-toggle {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     background: rgba(0, 0, 0, 0.3);
-    padding: 6px 12px;
-    border-radius: 8px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
 }
 
 .mode-label {
-    font-size: 12px;
+    font-size: 11px;
     color: #888;
 }
 
 .btn-mode {
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 4px 10px;
+    font-size: 11px;
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
     color: #aaa;
     cursor: pointer;
     transition: all 0.3s ease;
+    white-space: nowrap;
+    line-height: 1.4;
 }
 
 .btn-mode:hover {

@@ -180,21 +180,22 @@ const UI = {
      */
     updateModeUI() {
         const isLocal = AppState.mode === MODE.LOCAL;
+        const isGame = AppState.mode === MODE.GAME_SERVER;
         
         if (DOM.modeLocalBtn) {
             DOM.modeLocalBtn.classList.toggle('active', isLocal);
         }
-        if (DOM.modeServerBtn) {
-            DOM.modeServerBtn.classList.toggle('active', !isLocal);
+        if (DOM.modeGameBtn) {
+            DOM.modeGameBtn.classList.toggle('active', isGame);
         }
         
         if (DOM.modeIndicator) {
             if (isLocal) {
-                DOM.modeIndicator.textContent = '🔌 本地模式';
+                DOM.modeIndicator.textContent = '本地';
                 DOM.modeIndicator.className = 'mode-indicator local';
             } else {
-                DOM.modeIndicator.textContent = AppState.serverAvailable ? '🌐 服务端模式' : '⚠️ 服务端不可用';
-                DOM.modeIndicator.className = `mode-indicator ${AppState.serverAvailable ? 'server' : 'unavailable'}`;
+                DOM.modeIndicator.textContent = AppState.gameServerConnected ? '服务器' : '未连接';
+                DOM.modeIndicator.className = `mode-indicator ${AppState.gameServerConnected ? 'server' : 'unavailable'}`;
             }
         }
         
@@ -204,28 +205,53 @@ const UI = {
     },
 
     /**
+     * 显示游戏服务器卡池列表
+     */
+    showGameServerPools(pools) {
+        if (!pools || pools.length === 0) {
+            DOM.poolTabs.innerHTML = '<span class="no-data-hint">登录后获取卡池数据</span>';
+            return;
+        }
+        let html = '';
+        pools.forEach((pool, index) => {
+            const isActive = pool.poolId === AppState.currentPoolId || 
+                           (index === 0 && !AppState.currentPoolId);
+            if (isActive && !AppState.currentPoolId) {
+                AppState.currentPoolId = pool.poolId;
+            }
+            html += `
+                <button class="pool-tab ${isActive ? 'active' : ''}" 
+                        data-pool-id="${pool.poolId}">
+                    卡池#${pool.poolId} (已抽${pool.times}次)
+                </button>
+            `;
+        });
+        DOM.poolTabs.innerHTML = html;
+    },
+
+    /**
      * 显示服务端不可用提示
      */
     showServerUnavailable(message) {
         DOM.poolTabs.innerHTML = '<span class="no-data-hint">暂无卡池数据</span>';
-        DOM.poolDesc.textContent = message || '服务端接口不可用';
+        DOM.poolDesc.textContent = message || '游戏服务器未连接';
         
         DOM.cardsGrid.innerHTML = `
             <div class="server-unavailable">
-                <div class="unavailable-icon">🔌</div>
-                <div class="unavailable-title">服务端接口不可用</div>
-                <div class="unavailable-message">${message || '服务端接口不可用'}</div>
-                <div class="unavailable-hint">请切换到本地模式使用</div>
+                <div class="unavailable-icon">🎮</div>
+                <div class="unavailable-title">游戏服务器未连接</div>
+                <div class="unavailable-message">${message || '正在尝试连接服务器...'}</div>
+                <div class="unavailable-hint">请检查后台服务器配置是否正确</div>
             </div>
         `;
         
         this.disablePullButtons();
         
-        DOM.featuredList.innerHTML = '<p class="empty-hint">服务端不可用</p>';
-        DOM.detailsList.innerHTML = '<p class="empty-hint">服务端不可用</p>';
+        DOM.featuredList.innerHTML = '<p class="empty-hint">服务器未连接</p>';
+        DOM.detailsList.innerHTML = '<p class="empty-hint">服务器未连接</p>';
         
         if (DOM.modeIndicator) {
-            DOM.modeIndicator.textContent = '⚠️ 服务端不可用';
+            DOM.modeIndicator.textContent = '未连接';
             DOM.modeIndicator.className = 'mode-indicator unavailable';
         }
     },
