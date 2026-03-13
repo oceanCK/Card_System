@@ -3,6 +3,7 @@ Flask应用入口 - 应用初始化和启动
 """
 from flask import Flask
 import sys
+import secrets
 from pathlib import Path
 
 # 添加项目根目录到Python路径
@@ -34,8 +35,7 @@ def create_app():
     env = os.environ.get('FLASK_ENV', 'development')
     
     # 配置
-    # 生产环境应使用环境变量设置 SECRET_KEY
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'gacha-probability-tool-secret')
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
     app.config['JSON_AS_ASCII'] = False  # 支持中文JSON
     
     # 生产环境额外配置

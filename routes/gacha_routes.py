@@ -6,6 +6,7 @@ from pathlib import Path
 import uuid
 
 from services.gacha import gacha_service
+from config import GAME_SERVER_CONFIG
 
 # 创建蓝图
 gacha_bp = Blueprint('gacha', __name__)
@@ -26,7 +27,11 @@ def index():
     current_pool = gacha_service.get_current_pool(session_id)
     return render_template('index.html', 
                          pools=pools, 
-                         current_pool=current_pool)
+                         current_pool=current_pool,
+                         game_config={
+                             'username': GAME_SERVER_CONFIG.get('username', ''),
+                             'password': GAME_SERVER_CONFIG.get('password', '')
+                         })
 
 
 @gacha_bp.route('/data/cards.json', methods=['GET'])

@@ -3,6 +3,46 @@
  */
 
 const GachaEngine = {
+    // ==================== 游戏服务器模式 客户端统计存储 ====================
+    _gsStats: { total: 0, ssr: 0, sr: 0, r: 0, featured: {} },
+    _gsHistory: [],  // [{card:{card_id, name, rarity, is_featured, image_url}, pity_count}]
+
+    _gsAccumulate(cards) {
+        for (const item of cards) {
+            const c = item.card;
+            this._gsStats.total++;
+            const r = (c.rarity || 'R').toUpperCase();
+            if (r === 'SSR') {
+                this._gsStats.ssr++;
+                const key = c.name || c.card_id;
+                this._gsStats.featured[key] = (this._gsStats.featured[key] || 0) + 1;
+            } else if (r === 'SR') {
+                this._gsStats.sr++;
+            } else {
+                this._gsStats.r++;
+            }
+            this._gsHistory.push(item);
+        }
+    },
+
+    _gsGetStats() {
+        const t = this._gsStats.total || 1;
+        return {
+            total_pulls: this._gsStats.total,
+            ssr_count: this._gsStats.ssr,
+            sr_count: this._gsStats.sr,
+            r_count: this._gsStats.r,
+            ssr_rate: (this._gsStats.ssr / t * 100).toFixed(2) + '%',
+            sr_rate: (this._gsStats.sr / t * 100).toFixed(2) + '%',
+            r_rate: (this._gsStats.r / t * 100).toFixed(2) + '%',
+            featured_ssr_counts: { ...this._gsStats.featured }
+        };
+    },
+
+    _gsResetStats() {
+        this._gsStats = { total: 0, ssr: 0, sr: 0, r: 0, featured: {} };
+        this._gsHistory = [];
+    },
     /**
      * 判断当前是否为本地模式
      */
@@ -77,7 +117,7 @@ const GachaEngine = {
             if (!AppState.gameServerConnected) {
                 return this._serverUnavailableResponse('抽卡');
             }
-            return await this._gameServerPullMulti();
+            return await this._gameServerPullN(count);
         }
     },
 
@@ -104,8 +144,7 @@ const GachaEngine = {
             if (!AppState.gameServerConnected) {
                 return this._serverUnavailableResponse('抽卡');
             }
-            // 游戏服务器模式直接调用十连抽
-            return await this._gameServerPullMulti();
+            return await this._gameServerPullN(count, onProgress);
         }
     },
 
@@ -116,7 +155,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.getStatistics();
         } else {
-            return { success: true, stats: this._gameServerEmptyStats() };
+            return { success: true, stats: this._gsGetStats() };
         }
     },
 
@@ -127,7 +166,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.getHistory(limit);
         } else {
-            return { success: true, history: [] };
+            return { success: true, history: this._gsHistory.slice(-limit) };
         }
     },
 
@@ -138,7 +177,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.getExportData();
         } else {
-            return { success: false, message: '游戏服务器模式暂不支持导出数据' };
+            return this._gsExportData();
         }
     },
 
@@ -152,7 +191,7 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return await localGachaService.getExportDataAsync(onProgress);
         } else {
-            return { success: false, message: '游戏服务器模式暂不支持导出数据' };
+            return this._gsExportData();
         }
     },
 
@@ -163,7 +202,8 @@ const GachaEngine = {
         if (this.isLocalMode()) {
             return localGachaService.reset();
         } else {
-            return { success: true, message: '游戏服务器模式无本地数据需要重置' };
+            this._gsResetStats();
+            return { success: true, message: '服务器模式统计已重置' };
         }
     },
 
@@ -207,7 +247,12 @@ const GachaEngine = {
             const result = await API.gameStatus();
             AppState.gameServerConnected = result.connected || false;
             if (result.connected) {
-                return { available: true, message: '游戏服务器已连接' };
+                return {
+                    available: true,
+                    logged_in: result.logged_in || false,
+                    username: result.username || null,
+                    message: '游戏服务器已连接'
+                };
             } else {
                 return { available: false, message: '游戏服务器未连接' };
             }
@@ -218,11 +263,16 @@ const GachaEngine = {
     },
 
     /**
-     * 一键连接+登录游戏服务器（使用后台配置）
+     * 一键连接+登录游戏服务器（可选传入账号密码和服务器地址）
      */
-    async autoConnectGameServer() {
+    async autoConnectGameServer(username, password) {
         try {
-            const result = await API.gameAutoConnect();
+            const srv = AppState.selectedServer;
+            const result = await API.gameAutoConnect(
+                username, password,
+                srv ? srv.host : undefined,
+                srv ? srv.port : undefined
+            );
             AppState.gameServerConnected = result.success && result.connected;
             return result;
         } catch (e) {
@@ -238,6 +288,7 @@ const GachaEngine = {
         try {
             const result = await API.gameDisconnect();
             AppState.gameServerConnected = false;
+            AppState.connectedServer = null;
             return result;
         } catch (e) {
             return { success: false, message: '断开失败: ' + e.message };
@@ -256,6 +307,29 @@ const GachaEngine = {
         }
     },
 
+    // 游戏服务器错误码映射
+    _errorCodeMap: {
+        24: '抽卡货币不足',
+        31: '背包物品不足',
+        33: '钻石不足',
+        38: '卡池已关闭'
+    },
+
+    _errorMessage(code) {
+        return this._errorCodeMap[code] || `未知错误 (${code})`;
+    },
+
+    /**
+     * 更新卡池 tab 上的已抽次数
+     */
+    _updatePoolTabTimes(pool) {
+        if (!pool || !pool.poolId) return;
+        const tab = document.querySelector(`.pool-tab[data-pool-id="${pool.poolId}"]`);
+        if (tab) {
+            tab.textContent = `卡池#${pool.poolId} (已抽${pool.times || 0}次)`;
+        }
+    },
+
     /**
      * 游戏服务器单抽 - 转换为platform格式
      */
@@ -264,28 +338,61 @@ const GachaEngine = {
         try {
             const result = await API.gamePullSingle(parseInt(poolId));
             if (!result.success) {
-                return { success: false, message: `抽卡失败 (错误码: ${result.error_code})` };
+                return { success: false, message: `抽卡失败: ${this._errorMessage(result.error_code)}` };
             }
-            // 转换为平台标准格式
+            // 更新卡池 tab 已抽次数
+            if (result.pool) this._updatePoolTabTimes(result.pool);
+            // 转换为平台标准格式（服务器已返回 name / rarity）
             const cards = (result.cards || []).map(c => ({
                 card: {
                     card_id: String(c.cardId),
-                    name: `卡牌#${c.cardId}`,
-                    rarity: 'SSR',  // 游戏服务器暂无rarity字段, 默认显示
+                    name: c.name || `卡牌#${c.cardId}`,
+                    rarity: c.rarity || 'R',
                     is_featured: c.isNew || false,
                     image_url: ''
                 },
                 pity_count: 0
             }));
+            this._gsAccumulate(cards);
             return {
                 success: true,
                 result: cards[0] || { card: { card_id: '0', name: '未知', rarity: 'R' } },
                 results: cards,
-                stats: this._gameServerEmptyStats()
+                stats: this._gsGetStats()
             };
         } catch (e) {
             return { success: false, message: '单抽请求失败: ' + e.message };
         }
+    },
+
+    /**
+     * 游戏服务器抽N次（分解为多次十连 + 单抽）
+     */
+    async _gameServerPullN(count, onProgress = null) {
+        const tenPulls = Math.floor(count / 10);
+        const singlePulls = count % 10;
+        const allCards = [];
+        let done = 0;
+
+        for (let i = 0; i < tenPulls; i++) {
+            const r = await this._gameServerPullMulti();
+            if (!r.success) return r;
+            allCards.push(...(r.results || []));
+            done += 10;
+            if (onProgress) onProgress(done, count, Math.round(done / count * 100));
+        }
+        for (let i = 0; i < singlePulls; i++) {
+            const r = await this._gameServerPullSingle();
+            if (!r.success) return r;
+            allCards.push(...(r.results || []));
+            done += 1;
+            if (onProgress) onProgress(done, count, Math.round(done / count * 100));
+        }
+        return {
+            success: true,
+            results: allCards,
+            stats: this._gsGetStats()
+        };
     },
 
     /**
@@ -296,22 +403,25 @@ const GachaEngine = {
         try {
             const result = await API.gamePullMulti(parseInt(poolId));
             if (!result.success) {
-                return { success: false, message: `抽卡失败 (错误码: ${result.error_code})` };
+                return { success: false, message: `抽卡失败: ${this._errorMessage(result.error_code)}` };
             }
+            // 更新卡池 tab 已抽次数
+            if (result.pool) this._updatePoolTabTimes(result.pool);
             const cards = (result.cards || []).map(c => ({
                 card: {
                     card_id: String(c.cardId),
-                    name: `卡牌#${c.cardId}`,
-                    rarity: 'SSR',
+                    name: c.name || `卡牌#${c.cardId}`,
+                    rarity: c.rarity || 'R',
                     is_featured: c.isNew || false,
                     image_url: ''
                 },
                 pity_count: 0
             }));
+            this._gsAccumulate(cards);
             return {
                 success: true,
                 results: cards,
-                stats: this._gameServerEmptyStats()
+                stats: this._gsGetStats()
             };
         } catch (e) {
             return { success: false, message: '十连抽请求失败: ' + e.message };
@@ -319,18 +429,29 @@ const GachaEngine = {
     },
 
     /**
-     * 游戏服务器模式的空统计数据(服务器不返回统计, 前端不积累)
+     * 游戏服务器模式导出数据
      */
-    _gameServerEmptyStats() {
-        return {
-            total_pulls: 0,
-            ssr_count: 0,
-            sr_count: 0,
-            r_count: 0,
-            ssr_rate: '0.00%',
-            sr_rate: '0.00%',
-            r_rate: '0.00%',
-            featured_ssr_counts: {}
-        };
+    _gsExportData() {
+        if (this._gsHistory.length === 0) {
+            return { success: false, message: '暂无抽卡记录可导出' };
+        }
+        const stats = this._gsGetStats();
+        let text = `=== 游戏服务器抽卡记录 ===\n`;
+        text += `总抽数: ${stats.total_pulls}\n`;
+        text += `SSR: ${stats.ssr_count} (${stats.ssr_rate})  SR: ${stats.sr_count} (${stats.sr_rate})  R: ${stats.r_count} (${stats.r_rate})\n\n`;
+        if (Object.keys(stats.featured_ssr_counts).length > 0) {
+            text += `--- SSR 获取统计 ---\n`;
+            for (const [name, count] of Object.entries(stats.featured_ssr_counts)) {
+                text += `  ${name}: ${count}张\n`;
+            }
+            text += `\n`;
+        }
+        text += `--- 抽卡明细 (最近${this._gsHistory.length}条) ---\n`;
+        this._gsHistory.forEach((item, i) => {
+            const c = item.card;
+            text += `${i + 1}. [${c.rarity}] ${c.name} (ID:${c.card_id})\n`;
+        });
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        return { success: true, summary: text, fullBlob: blob };
     }
 };

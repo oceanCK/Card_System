@@ -17,7 +17,7 @@ CARD_RARITY = {
     'R': {
         'name': 'R',
         'color': '#3498DB',  # 蓝色
-        'probability': 0.90  # 90% 基础概率
+        'probability': 0.88  # 88% 基础概率
     }
 }
 
@@ -63,16 +63,28 @@ ENV = os.environ.get('FLASK_ENV', 'development')
 
 SERVER_CONFIG = {
     'host': os.environ.get('HOST', '0.0.0.0'),
-    'port': int(os.environ.get('PORT', 5007)),
+    'port': int(os.environ.get('PORT', 5009)),
     'debug': ENV == 'development',
     'workers': int(os.environ.get('WORKERS', 4)),  # 生产环境 worker 数量
 }
 
-# 游戏服务器连接配置（后台管理，不暴露给前端）
+# 游戏服务器连接配置
 GAME_SERVER_CONFIG = {
     'host': os.environ.get('GAME_HOST', '10.20.200.20'),
     'port': int(os.environ.get('GAME_PORT', 40500)),
     'timeout': int(os.environ.get('GAME_TIMEOUT', 10)),
-    'username': os.environ.get('GAME_USER', 'test'),
-    'password': os.environ.get('GAME_PASS', '1234'),
+    'username': os.environ.get('GAME_USER', ''),
+    'password': os.environ.get('GAME_PASS', ''),
 }
+
+# 可选游戏服务器列表（展示在前端侧边栏供用户选择，实际信息后台管理）
+GAME_SERVER_LIST = [
+    {'id': 'dev', 'name': 'QA服', 'host': '10.20.200.20', 'port': 40500},
+    {'id': 'dev', 'name': '英雄服', 'host': '10.20.200.20', 'port': 40300},
+    {'id': 'dev', 'name': '内网服', 'host': '10.20.200.20', 'port': 40100},
+]
+
+# 卡牌元数据文件路径（游戏服务器模式用于充实卡牌名称和品阶信息，留空则跳过加载） -- 需要关注这里的json文件是否由更新
+CARD_DATA_PATH = os.environ.get('CARD_DATA_PATH', 'E:\\Product\\Trunk\\Server\\Config\\Json\\cs\\CardMainSet.json')
+# 卡池元数据文件路径（游戏服务器模式用于充实卡池名称和类型信息，留空则跳过加载）
+POOL_DATA_PATH = os.environ.get('POOL_DATA_PATH', 'E:\\Product\\Trunk\\Server\\Config\\Json\\cs\\GachaPoolSet.json')

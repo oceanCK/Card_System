@@ -26,7 +26,11 @@ const AppState = {
     })(),
     localServiceReady: false,
     // 游戏服务器连接状态
-    gameServerConnected: false
+    gameServerConnected: false,
+    // 当前选中的服务器 {id, name, host, port}
+    selectedServer: null,
+    // 当前已连接的服务器 {id, name, host, port}
+    connectedServer: null
 };
 
 // ==================== DOM 元素引用 ====================
@@ -69,6 +73,17 @@ const DOM = {
     modeLocalBtn: null,
     refreshDataBtn: null,
     modeIndicator: null,
+
+    // 登录相关
+    loginSection: null,
+    loginUsername: null,
+    loginPassword: null,
+    loginBtn: null,
+    loginError: null,
+
+    // 服务器选择
+    serverSelectSection: null,
+    serverList: null,
     
     // 进度条相关
     progressContainer: null,
@@ -121,6 +136,17 @@ const DOM = {
         
         // 游戏服务器模式
         this.modeGameBtn = document.getElementById('modeGameBtn');
+
+        // 登录相关
+        this.loginSection = document.getElementById('loginSection');
+        this.loginUsername = document.getElementById('loginUsername');
+        this.loginPassword = document.getElementById('loginPassword');
+        this.loginBtn = document.getElementById('loginBtn');
+        this.loginError = document.getElementById('loginError');
+
+        // 服务器选择
+        this.serverSelectSection = document.getElementById('serverSelectSection');
+        this.serverList = document.getElementById('serverList');
 
         // 进度条
         this.progressContainer = document.getElementById('progressContainer');

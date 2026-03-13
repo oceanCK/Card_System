@@ -35,6 +35,12 @@ const EventHandlers = {
                 if (statsResult.success) {
                     UI.updateStats(statsResult.stats);
                 }
+                
+                // 恢复历史记录显示
+                const historyResult = await GachaEngine.getHistory(50);
+                if (historyResult.success && historyResult.history.length > 0) {
+                    UI.updateDetails(historyResult.history);
+                }
             }
         } catch (error) {
             console.error('切换卡池失败:', error);

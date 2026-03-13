@@ -25,26 +25,50 @@ async function initGachaEngine() {
         // 游戏服务器模式：自动连接+登录
         console.log('[Init] 正在初始化游戏服务器模式...');
         
+        // 先清空 HTML 模板预渲染的本地卡池 tabs
+        DOM.poolTabs.innerHTML = '<span class="no-data-hint">正在连接游戏服务器...</span>';
+        DOM.poolDesc.textContent = '正在连接...';
+        
+        // 读取登录输入框中的账号密码
+        const loginUser = DOM.loginUsername ? DOM.loginUsername.value.trim() : '';
+        const loginPass = DOM.loginPassword ? DOM.loginPassword.value : '';
+        
         // 先检查是否已连接
         const checkResult = await GachaEngine.checkGameServerAvailable();
         
         if (!checkResult.available) {
             // 未连接，自动连接
             console.log('[Init] 正在自动连接游戏服务器...');
-            const connectResult = await GachaEngine.autoConnectGameServer();
+            const connectResult = await GachaEngine.autoConnectGameServer(loginUser, loginPass);
             
             if (!connectResult.success) {
                 console.warn('[Init] 游戏服务器连接失败:', connectResult.message);
                 UI.showServerUnavailable(connectResult.message);
                 return false;
             }
+            
+            if (connectResult.logged_in) {
+                console.log('[Init] 登录成功:', connectResult.message);
+            } else {
+                console.warn('[Init] 登录未完成:', connectResult.message);
+            }
+        } else {
+            console.log('[Init] 游戏服务器已连接');
+            // 刷新后恢复：回填用户名、恢复登录态 UI
+            if (checkResult.logged_in && checkResult.username) {
+                if (DOM.loginUsername) DOM.loginUsername.value = checkResult.username;
+            } else {
+                const savedUser = sessionStorage.getItem('gacha_login_username');
+                if (savedUser && DOM.loginUsername) DOM.loginUsername.value = savedUser;
+            }
         }
         
         AppState.gameServerConnected = true;
+        if (!AppState.connectedServer && AppState.selectedServer) {
+            AppState.connectedServer = { ...AppState.selectedServer };
+        }
         UI.updateModeUI();
-        
-        // 连接成功, 延迟获取卡池（等服务器回调）
-        await new Promise(r => setTimeout(r, 1500));
+        UI.updateServerListStatus();
         
         try {
             const poolsResult = await GachaEngine.getGameServerPools();
@@ -52,9 +76,13 @@ async function initGachaEngine() {
                 UI.showGameServerPools(poolsResult.pools);
                 UI.enablePullButtons();
                 DOM.poolDesc.textContent = '已连接到游戏服务器, 可以开始抽卡';
+            } else {
+                DOM.poolTabs.innerHTML = '<span class="no-data-hint">获取卡池失败</span>';
+                DOM.poolDesc.textContent = poolsResult.message || '获取卡池失败';
             }
         } catch (e) {
             console.warn('[Init] 获取游戏卡池失败:', e);
+            DOM.poolTabs.innerHTML = '<span class="no-data-hint">获取卡池失败</span>';
         }
     }
     
@@ -96,6 +124,114 @@ async function initGachaEngine() {
     }
     
     return true;
+}
+
+// ==================== 登录按钮处理 ====================
+async function handleLoginClick() {
+    const username = DOM.loginUsername ? DOM.loginUsername.value.trim() : '';
+    const password = DOM.loginPassword ? DOM.loginPassword.value : '';
+    
+    if (!username) {
+        alert('请输入账号');
+        return;
+    }
+    
+    // 切换到游戏服务器模式（如果尚未切换）
+    if (AppState.mode !== MODE.GAME_SERVER) {
+        AppState.mode = MODE.GAME_SERVER;
+        localStorage.setItem('gachaMode', MODE.GAME_SERVER);
+        UI.updateModeUI();
+    }
+    
+    // 先断开旧连接
+    if (AppState.gameServerConnected) {
+        await GachaEngine.disconnectGameServer();
+        AppState.connectedServer = null;
+        UI.updateServerListStatus();
+    }
+    
+    // 重置客户端统计
+    GachaEngine._gsResetStats();
+    
+    // 显示连接中状态
+    DOM.poolTabs.innerHTML = '<span class="no-data-hint">正在连接游戏服务器...</span>';
+    DOM.poolDesc.textContent = '正在连接...';
+    UI.disablePullButtons();
+    if (DOM.loginBtn) {
+        DOM.loginBtn.disabled = true;
+        DOM.loginBtn.textContent = '连接中...';
+    }
+    
+    // 清除之前的登录错误提示
+    if (DOM.loginError) { DOM.loginError.style.display = 'none'; DOM.loginError.textContent = ''; }
+
+    try {
+        const connectResult = await GachaEngine.autoConnectGameServer(username, password);
+        
+        if (!connectResult.success) {
+            const errorType = connectResult.error_type || '';
+            if (['account_not_found', 'wrong_password', 'login_failed'].includes(errorType)) {
+                // 账号密码相关错误：在登录框旁边提示，不显示大面积"服务器未连接"
+                if (DOM.loginError) {
+                    DOM.loginError.textContent = connectResult.message;
+                    DOM.loginError.style.display = 'inline';
+                }
+                DOM.poolTabs.innerHTML = '';
+                DOM.poolDesc.textContent = '';
+            } else {
+                // 连接/超时等问题：显示服务器不可用
+                UI.showServerUnavailable(connectResult.message);
+            }
+            return;
+        }
+        
+        AppState.gameServerConnected = true;
+        AppState.connectedServer = AppState.selectedServer ? { ...AppState.selectedServer } : null;
+        UI.updateModeUI();
+        UI.updateServerListStatus();
+        
+        // 获取卡池
+        const poolsResult = await GachaEngine.getGameServerPools();
+        if (poolsResult.success && poolsResult.pools) {
+            UI.showGameServerPools(poolsResult.pools);
+            UI.enablePullButtons();
+            UI.resetUI();
+            DOM.poolDesc.textContent = `已登录 (${username}), 可以开始抽卡`;
+            
+            // 保存用户名到 sessionStorage，刷新后可恢复
+            sessionStorage.setItem('gacha_login_username', username);
+            
+            // 设置第一个卡池为当前卡池
+            const firstTab = document.querySelector('.pool-tab');
+            if (firstTab) {
+                firstTab.classList.add('active');
+                AppState.currentPoolId = firstTab.dataset.poolId;
+            }
+        } else {
+            DOM.poolTabs.innerHTML = '<span class="no-data-hint">获取卡池失败</span>';
+            DOM.poolDesc.textContent = poolsResult.message || '获取卡池失败';
+        }
+    } catch (e) {
+        console.error('[Login] 连接失败:', e);
+        UI.showServerUnavailable('连接失败: ' + e.message);
+    } finally {
+        if (DOM.loginBtn) {
+            DOM.loginBtn.disabled = false;
+            DOM.loginBtn.textContent = '登录';
+        }
+    }
+}
+
+// ==================== 加载服务器列表 ====================
+async function loadServerList() {
+    try {
+        const result = await API.gameGetServers();
+        if (result.success && result.servers) {
+            UI.renderServerList(result.servers);
+        }
+    } catch (e) {
+        console.warn('[Init] 加载服务器列表失败:', e);
+    }
 }
 
 // ==================== 刷新卡池标签 ====================
@@ -144,6 +280,36 @@ async function init() {
     if (DOM.refreshDataBtn) {
         DOM.refreshDataBtn.addEventListener('click', EventHandlers.handleRefreshData);
     }
+
+    // 绑定登录按钮事件
+    if (DOM.loginBtn) {
+        DOM.loginBtn.addEventListener('click', handleLoginClick);
+    }
+    // 密码框回车触发登录
+    if (DOM.loginPassword) {
+        DOM.loginPassword.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLoginClick();
+        });
+    }
+
+    // 服务器列表点击事件
+    if (DOM.serverList) {
+        DOM.serverList.addEventListener('click', (e) => {
+            const item = e.target.closest('.server-item');
+            if (!item) return;
+            AppState.selectedServer = {
+                id: item.dataset.serverId,
+                name: item.querySelector('.server-name').textContent,
+                host: item.dataset.serverHost,
+                port: parseInt(item.dataset.serverPort)
+            };
+            // 更新选中/连接状态样式
+            UI.updateServerListStatus();
+        });
+    }
+
+    // 加载服务器列表
+    loadServerList();
 
     // 绑定卡池切换事件
     DOM.poolTabs.addEventListener('click', EventHandlers.handlePoolChange);

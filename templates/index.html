@@ -18,7 +18,13 @@
         </nav>
         
         <div class="sidebar-footer">
-            <!-- 抽卡数据按钮已移至右上角 -->
+            <!-- 服务器选择（游戏服务器模式显示） -->
+            <div class="server-select-section" id="serverSelectSection" style="display:none;">
+                <h4 class="server-select-title">🖥 选择服务器</h4>
+                <div class="server-list" id="serverList">
+                    <div class="server-loading">加载中...</div>
+                </div>
+            </div>
         </div>
     </aside>
 
@@ -26,6 +32,14 @@
     <main class="main-content">
         <!-- 右上角操作区 -->
         <div class="top-actions">
+            <!-- 账号登录区 -->
+            <div class="login-section" id="loginSection">
+                <input type="text" id="loginUsername" class="login-input" placeholder="账号" value="{{ game_config.username }}">
+                <input type="password" id="loginPassword" class="login-input" placeholder="密码" value="{{ game_config.password }}">
+                <button id="loginBtn" class="btn btn-login" title="连接游戏服务器并登录">登录</button>
+                <span id="loginError" class="login-error" style="display:none;"></span>
+            </div>
+
             <!-- 模式切换 -->
             <div class="mode-toggle" id="modeToggle">
                 <span class="mode-label">模式:</span>

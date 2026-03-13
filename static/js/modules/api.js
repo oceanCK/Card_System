@@ -39,13 +39,22 @@ const API = {
     },
     
     // 游戏服务器桥接API
-    gameAutoConnect: () => API.post('/api/game/auto-connect'),
+    gameAutoConnect: (username, password, host, port) => {
+        const body = {};
+        if (username) body.username = username;
+        if (password) body.password = password;
+        if (host) body.host = host;
+        if (port) body.port = port;
+        return API.post('/api/game/auto-connect', body);
+    },
     gameDisconnect: () => API.post('/api/game/disconnect'),
     gameStatus: () => API.get('/api/game/status'),
+    gameWaitLogin: (timeout = 5) => API.get(`/api/game/wait-login?timeout=${timeout}`),
     gameGetPools: () => API.get('/api/game/pools'),
     gamePullSingle: (pool_id) => API.post('/api/game/pull/single', { pool_id }),
     gamePullMulti: (pool_id) => API.post('/api/game/pull/multi', { pool_id }),
     gameReadPoolNew: (poolId) => API.post(`/api/game/pools/${poolId}/read`),
+    gameGetServers: () => API.get('/api/game/servers'),
     gamePing: () => API.get('/api/game/ping'),
     gameGetRole: () => API.get('/api/game/role'),
     gameEcho: (message) => API.post('/api/game/echo', { message })

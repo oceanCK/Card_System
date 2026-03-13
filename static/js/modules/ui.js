@@ -146,9 +146,7 @@ const UI = {
         DOM.detailsList.innerHTML = '<p class="empty-hint">暂无抽卡记录</p>';
         AppState.lastResults = [];
         
-        if (AppState.mode === MODE.LOCAL) {
-            this.enablePullButtons();
-        }
+        this.enablePullButtons();
     },
 
     /**
@@ -202,6 +200,65 @@ const UI = {
         if (DOM.refreshDataBtn) {
             DOM.refreshDataBtn.style.display = isLocal ? 'inline-flex' : 'none';
         }
+        
+        // 登录区域仅在非本地模式下显示
+        if (DOM.loginSection) {
+            DOM.loginSection.style.display = isLocal ? 'none' : 'inline-flex';
+        }
+        
+        // 服务器选择区域仅在游戏服务器模式下显示
+        if (DOM.serverSelectSection) {
+            DOM.serverSelectSection.style.display = isGame ? 'block' : 'none';
+        }
+    },
+
+    /**
+     * 渲染服务器列表
+     */
+    renderServerList(servers) {
+        if (!DOM.serverList) return;
+        if (!servers || servers.length === 0) {
+            DOM.serverList.innerHTML = '<div class="server-empty">暂无可用服务器</div>';
+            return;
+        }
+        const selectedId = AppState.selectedServer ? AppState.selectedServer.id : null;
+        const connectedId = AppState.connectedServer ? AppState.connectedServer.id : null;
+        let html = '';
+        servers.forEach(srv => {
+            const isConnected = srv.id === connectedId && srv.host === (AppState.connectedServer && AppState.connectedServer.host) && srv.port === (AppState.connectedServer && AppState.connectedServer.port);
+            const isSelected = !isConnected && srv.id === selectedId;
+            const cls = isConnected ? 'connected' : (isSelected ? 'selected' : '');
+            html += `
+                <div class="server-item ${cls}" 
+                     data-server-id="${srv.id}" 
+                     data-server-host="${srv.host}" 
+                     data-server-port="${srv.port}">
+                    <span class="server-name">${srv.name}</span>
+                    <span class="server-addr">${srv.host}:${srv.port}</span>
+                </div>
+            `;
+        });
+        DOM.serverList.innerHTML = html;
+    },
+
+    /**
+     * 更新服务器列表状态样式（不重新渲染，只更新 class）
+     */
+    updateServerListStatus() {
+        if (!DOM.serverList) return;
+        const connectedSrv = AppState.connectedServer;
+        const selectedSrv = AppState.selectedServer;
+        DOM.serverList.querySelectorAll('.server-item').forEach(el => {
+            const id = el.dataset.serverId;
+            const host = el.dataset.serverHost;
+            const port = parseInt(el.dataset.serverPort);
+            el.classList.remove('selected', 'connected');
+            if (connectedSrv && id === connectedSrv.id && host === connectedSrv.host && port === connectedSrv.port) {
+                el.classList.add('connected');
+            } else if (selectedSrv && id === selectedSrv.id && host === selectedSrv.host && port === selectedSrv.port) {
+                el.classList.add('selected');
+            }
+        });
     },
 
     /**
@@ -214,7 +271,7 @@ const UI = {
         }
         let html = '';
         pools.forEach((pool, index) => {
-            const isActive = pool.poolId === AppState.currentPoolId || 
+            const isActive = pool.poolId == AppState.currentPoolId || 
                            (index === 0 && !AppState.currentPoolId);
             if (isActive && !AppState.currentPoolId) {
                 AppState.currentPoolId = pool.poolId;
@@ -222,7 +279,7 @@ const UI = {
             html += `
                 <button class="pool-tab ${isActive ? 'active' : ''}" 
                         data-pool-id="${pool.poolId}">
-                    卡池#${pool.poolId} (已抽${pool.times}次)
+                    ${pool.name || '卡池#' + pool.poolId} (已抽${pool.times}次)
                 </button>
             `;
         });

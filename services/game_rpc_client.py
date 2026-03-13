@@ -22,6 +22,10 @@ import json
 import threading
 import time
 import logging
+import random
+import base64
+from urllib.request import urlopen
+from urllib.error import URLError
 from typing import Dict, List, Optional, Callable, Any, Tuple
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -116,6 +120,48 @@ class GameRpcClient:
         # 服务器推送回调
         self._notify_handlers: Dict[str, Callable] = {}
     
+    @staticmethod
+    def resolve_xserver(router_host: str, router_port: int, timeout: float = 5.0) -> Tuple[str, int]:
+        """
+        通过 RouterManager HTTP 接口解析 XServer 的实际 TCP 地址。
+        
+        C# 客户端连接流程: 先 HTTP GET RouterManager 获取 XServer 地址,
+        再用原始 TCP 连接 XServer。
+        
+        Args:
+            router_host: RouterManager 地址 (如 "10.20.200.20")
+            router_port: RouterManager HTTP 端口 (如 40500)
+            timeout: HTTP 请求超时(秒)
+        
+        Returns:
+            (xserver_host, xserver_port) 元组
+        
+        Raises:
+            ConnectionError: 无法连接 RouterManager 或响应中无 XServer 信息
+        """
+        v = random.randint(0, 2**32 - 1)
+        url = f"http://{router_host}:{router_port}/get_router?v={v}"
+        logger.info(f"Resolving XServer address from RouterManager: {url}")
+        
+        try:
+            with urlopen(url, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (URLError, OSError) as e:
+            raise ConnectionError(f"无法连接 RouterManager ({router_host}:{router_port}): {e}")
+        
+        xserver = data.get("XServer") or data.get("xServer") or data.get("xserver")
+        if not xserver:
+            raise ConnectionError(f"RouterManager 响应中无 XServer 地址: {data}")
+        
+        parts = xserver.rsplit(":", 1)
+        if len(parts) != 2:
+            raise ConnectionError(f"XServer 地址格式无效: {xserver}")
+        
+        xhost = parts[0]
+        xport = int(parts[1])
+        logger.info(f"Resolved XServer address: {xhost}:{xport}")
+        return xhost, xport
+
     @property
     def is_connected(self) -> bool:
         return self._sock is not None and self._running
@@ -178,15 +224,15 @@ class GameRpcClient:
         
         return_id = self._next_return_id() if need_return else 0
         
-        # 参数序列化为 JSON 字节
+        # 参数序列化为 base64 (.NET Newtonsoft.Json 的 byte[] 标准格式)
         param_json = json.dumps(params)
-        param_bytes = list(param_json.encode("utf-8"))
+        param_b64 = base64.b64encode(param_json.encode("utf-8")).decode("ascii")
         
         # 构造 BasicMsg 信封
         basic_msg = {
             "rpcId": rpc_id,
             "returnId": return_id,
-            "msg": param_bytes
+            "msg": param_b64
         }
         
         raw = json.dumps(basic_msg).encode("utf-8")
@@ -265,20 +311,28 @@ class GameRpcClient:
         return_id = msg.get("returnId", 0)
         msg_bytes = msg.get("msg")
         
-        # 将 msg (byte[]) 反序列化
+        # 将 msg 反序列化
+        # C# (.NET) 将 byte[] 序列化为 base64 字符串, 也可能是 JSON int 数组
         decoded_data = None
         if msg_bytes is not None:
+            raw_bytes = None
             if isinstance(msg_bytes, list):
-                raw = bytes(msg_bytes)
+                # JSON int 数组形式: [72, 101, ...]
+                raw_bytes = bytes(msg_bytes)
             elif isinstance(msg_bytes, str):
-                raw = msg_bytes.encode("utf-8")
-            else:
-                raw = msg_bytes
-            
-            try:
-                decoded_data = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                decoded_data = raw
+                # base64 字符串形式 (.NET 默认 byte[] 序列化方式)
+                try:
+                    raw_bytes = base64.b64decode(msg_bytes)
+                except Exception:
+                    raw_bytes = msg_bytes.encode("utf-8")
+            elif isinstance(msg_bytes, bytes):
+                raw_bytes = msg_bytes
+
+            if raw_bytes is not None:
+                try:
+                    decoded_data = json.loads(raw_bytes.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    decoded_data = raw_bytes.decode('utf-8', errors='replace')
         
         if rpc_id == "_return" and return_id in self._callbacks:
             # RPC 响应
